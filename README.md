@@ -7,9 +7,9 @@
 > **PhD Research Proposal**: Distinguishing Biological from Anatomical Changes for Personalized Dose Optimization in Adaptive Proton Therapy
 
 **Author**: Saeed Sarbazzadeh Khosroshahi  
-**Supervisor**: Professor Stine Sofia Korreman  
-**Institution**: Aarhus University & Danish Centre for Particle Therapy  
-**Program**: RAPTORplus Marie-Sklodowska-Curie-Action EU Doctoral Network  
+**Current Affiliation**: PhD Candidate, Istanbul Technical University (ITU)  
+**Application**: RAPTORplus Marie-Sklodowska-Curie-Action EU Doctoral Network (Prospective Candidate)  
+**Proposed Supervisor**: Professor Stine Sofia Korreman (Aarhus University & Danish Centre for Particle Therapy)  
 **Last Updated**: January 26, 2026
 
 ---
@@ -307,15 +307,14 @@ Year 3 (2028-2029)
 ## 📞 Contact & Links
 
 **Saeed Sarbazzadeh Khosroshahi**  
-PhD Candidate, RAPTORplus Doctoral Network  
-Danish Centre for Particle Therapy  
-Aarhus University & Aarhus University Hospital
+PhD Candidate, Istanbul Technical University (ITU)  
+Applicant: RAPTORplus Marie-Sklodowska-Curie-Action EU Doctoral Network
 
-- 🌐 Website: [to be added]
 - 🐙 GitHub: [@saeedsarbaz](https://github.com/saeedsarbaz)
-- 📧 Email: saeed.sarbazzadeh@clin.au.dk
-- 🔗 LinkedIn: [to be added]
-- 📚 Google Scholar: [to be added]
+- 📧 Email: khosroshahis19@itu.edu.tr
+- 📱 Phone: +90 551 011 8486
+- 🏛️ Current Institution: Istanbul Technical University
+- 🎯 Target Program: RAPTORplus Doctoral Network
 
 ---
 
