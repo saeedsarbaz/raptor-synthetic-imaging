@@ -1,0 +1,109 @@
+# LaTeX Build Files
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.blg
+*.bbl
+*.bcf
+*.run.xml
+*.lof
+*.lot
+*.idx
+*.ind
+*.ilg
+*.glo
+*.gls
+*.glg
+*.xdy
+*.nav
+*.snm
+*.vrb
+*.dvi
+*.ps
+
+# LaTeX Temporary Files
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Build Directories
+build/
+_build/
+dist/
+output/
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# Editor Files
+.vscode/
+.idea/
+*.sublime-*
+*.code-workspace
+
+# Python (if you add scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+*.egg-info/
+
+# Jupyter Notebooks (if you add analysis)
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Data Files (keep repository lightweight)
+*.dcm
+*.nii
+*.nii.gz
+*.raw
+*.mhd
+*.nrrd
+data/
+datasets/
+
+# Large Binary Files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Credentials & Secrets
+*.key
+*.pem
+*.p12
+.env
+credentials.json
+config.local.json
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Temporary Test Files
+temp/
+tmp/
+test_output/
+
+# Keep Important Directories (create if needed)
+!docs/figures/.gitkeep
+!validation/.gitkeep
+!methodology/.gitkeep
+!references/.gitkeep

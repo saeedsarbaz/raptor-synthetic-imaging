@@ -1,0 +1,226 @@
+Below is a line‑by‑line, section‑by‑section technical review from Abstract to References. For each section I list: strengths, mistakes/ambiguities/weak points, and concrete corrections or superior methodology with key references. I focus on proton‑therapy specifics (range/RBE/robustness/interplay), AI rigor (ground truth, radiomics standards, uncertainty), imaging realities (CBCT→sCT, dose accumulation), and clinical integration (OAPT feasibility, TPS constraints).
+
+Top takeaways (prioritized)
+- Define “biological vs anatomical change” operationally and establish verifiable labels; otherwise Task 2 will learn scanner/CBCT artifacts, not biology. Use multimodal ground truth (DW‑MRI, FDG‑PET, potentially in‑room PET, plus blinded expert labels) and strict QA. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/37405500/?utm_source=openai))
+- Replace image‑only metrics (SSIM/FID) with dosimetry‑relevant validation for Task 1: HU/SPR error, range error, gamma, and DVH deltas on proton dose. FID for medical images is fragile and often misleading; if kept, use medical‑domain embeddings or alternative metrics and report sample size sensitivity. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+- Plan for robust optimization and reporting of Gy(RBE): your Task 3 equations should incorporate range/setup uncertainties, and you must decide how you treat RBE/LET in both objectives and evaluation. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/22320818/?utm_source=openai))
+- Anchor OAPT feasibility claims to current literature: sub‑10‑minute end‑to‑end OAPT is achievable but requires tight scoping, automation, and precomputation. Your 10‑minute target is plausible, but you need a stepwise time budget and fallbacks. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+- Dose accumulation must be energy/mass‑aware and registration‑QA’d; otherwise “accumulated dose” features in Task 2 will be unreliable. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39546728/?utm_source=openai))
+- Radiomics must be IBSI‑compliant and harmonized; delta‑radiomics literature shows reproducibility challenges—plan for standardization and calibration. ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC7193906/?utm_source=openai))
+- Security/privacy: synthetic training via diffusion can memorize data; document safeguards (DP‑SGD or membership‑inference audits) before sharing/using synthetic cohorts. ([arxiv.org](https://arxiv.org/abs/2305.07644?utm_source=openai))
+
+Details by proposal section
+
+1) Abstract
+- Strengths
+  - Clear central question and four‑task pipeline.
+- Weak/ambiguous points
+  - “Dose optimization strategies differ based on characterization” is correct, but the Abstract does not acknowledge proton‑specific uncertainties (range, variable RBE/LET) or the need for robust optimization. It also does not specify dose reporting convention (Gy(RBE)). ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/22320818/?utm_source=openai))
+  - “Daily imaging” is vague; list the intended modalities (CBCT, in‑room CT, possibly DW‑MRI/PET for biology). ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+- Suggested correction
+  - Add: “We will report dose as $D_\mathrm{RBE}$ in Gy(RBE) per ICRU 78 and evaluate plans with robust optimization (range ±3.5%, setup ±3 mm) and, where feasible, LET‑aware evaluation.” ([icru.org](https://www.icru.org/report/prescribing-recording-and-reporting-proton-beam-therapy-icru-report-78/?utm_source=openai))
+
+2) Introduction
+- Strengths
+  - Correctly highlights proton sensitivity to anatomy.
+- Mistakes/ambiguities
+  - “Online adaptive proton therapy represents current state‑of‑the‑art” needs nuance and citations to recent OAPT implementations and timing constraints; also mention emerging LET‑aware evaluation. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+  - No definition of “biological change” vs “anatomical change.” Include examples: edema/inflammation, necrosis, tumor cellularity shifts (DW‑MRI ADC), metabolic changes (FDG‑PET), versus rigid/deformable geometry or organ filling. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/37405500/?utm_source=openai))
+- Proposed revisions
+  - Define classes: A) Rigid/anatomical (setup, organ filling), B) Deformable anatomical (shape/volume without tissue property change), C) Biological response (ADC↑, SUV↓, density changes from inflammation/fibrosis), D) Technical/artifact (CBCT scatter/HU drift). You will need labels for A–D. ([ovid.com](https://www.ovid.com/journals/jacmp/fulltext/10.1002/acm2.70145~hounsfield-unit-characterization-and-dose-calculation-on-a?utm_source=openai))
+
+3) Research Questions and Objectives
+- Strengths
+  - Clear objectives aligned with pipeline.
+- Weak points
+  - Objective 2 lists “accumulated dose,” but does not specify dose accumulation method or DIR QA. State an energy/mass‑conserving dose accumulation approach and DIR QA per best practices. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39546728/?utm_source=openai))
+  - Add an objective for uncertainty quantification and robust decision‑making (confidence‑weighted optimization, conformal prediction thresholds).  
+- Additions
+  - Explicitly include: “IBSI‑compliant radiomics pipeline with site‑wise harmonization; robust plan optimization and evaluation; RBE/LET sensitivity analysis.” ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC7193906/?utm_source=openai))
+
+4) State of the Art
+4.1 Adaptive Proton Therapy
+- Corrections
+  - Cite clinical OAPT demonstrations and timing (<10 min adaptation; daily OAPT in practice). ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+  - Add reviews on near real‑time OAPT workflows and verification. ([frontiersin.org](https://www.frontiersin.org/journals/oncology/articles/10.3389/fonc.2025.1660605/full?utm_source=openai))
+
+4.2 AI in Radiation Oncology
+- Corrections
+  - Update CBCT→sCT for proton dose with recent 2024–2025 evaluations showing high gamma pass rates and 1–1.1 mm range differences; highlight that dose accuracy, not just SSIM/MAE, is key. ([sciencedirect.com](https://www.sciencedirect.com/science/article/pii/S2405631624001283?utm_source=openai))
+  - Note that radiomics reproducibility hinges on IBSI compliance and harmonization; delta‑radiomics has mixed quality. ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC7193906/?utm_source=openai))
+
+4.3 Research Gap
+- Enhancements
+  - Emphasize that no validated framework currently disentangles biological vs anatomical drivers on daily proton images; propose integrating serial DW‑MRI/FDG‑PET mid‑treatment as “biological anchors.” ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/37405500/?utm_source=openai))
+
+5) Methodology
+
+5.1 Task 1: Synthetic Image Generation
+- Strengths
+  - Combining deformation models with diffusion conditioning is sensible.
+- Mistakes/weak points
+  - Domain mismatch: pilot used hippocampus MRI; your target is H&N and thorax CT/CBCT with proton‑relevant HU/SPR. Synthetic cohorts must preserve HU→SPR accuracy and proton range behavior; MRI pilot SSIM=0.57 is not meaningful for proton dose plausibility. Use CT/CBCT datasets; validate with dose. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+  - FID reporting (254.06) is not informative in this domain and can be misleading; if kept, report sample size, feature extractor, confidence intervals, and complement with domain‑appropriate metrics (LPIPS, precision/recall) and, more importantly, dosimetric endpoints. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40444256/?utm_source=openai))
+  - Risk of memorization with diffusion models on small datasets; plan membership‑inference testing or DP‑SGD. ([arxiv.org](https://arxiv.org/abs/2305.07644?utm_source=openai))
+  - The “biological response simulation” is currently geometric/intensity toy data; move to conditional generation tied to measured response (ADC/SUV changes) and delivered dose, with constraints to avoid leakage from dose conditioning to artifact hallucination. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/35646643/?utm_source=openai))
+- Concrete fixes
+  - Data: Use H&N CT/CBCT with paired reCT and/or vCT; validate sCT with HU/SPR error, median range error, and plan recalculation gamma (e.g., 2%/2 mm). Report DVH changes for CTV/OARs. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+  - Metrics to add: HU MAE, SPR RMSE (if SPR maps available), median absolute range error (mm), gamma 2%/2 mm and 1%/1 mm for high‑dose region, ΔDVH (D95, Dmean OARs), and outlier analysis. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+  - Synthetic‑data governance: perform membership‑inference audits; if sharing, train with DP‑SGD (DP‑diffusion) and report epsilon. ([research.nvidia.com](https://research.nvidia.com/labs/toronto-ai/publication/2023_tmlr_dpdm/?utm_source=openai))
+
+5.2 Task 2: AI‑Based Response Characterization
+- Strengths
+  - Multimodal features and uncertainty awareness are appropriate.
+- Ambiguities/weak points
+  - Ground truth definition is missing. Without anchors, the classifier may label CBCT scatter/HU drift as “biology.” Require a hierarchical labeling protocol:
+    - Tier 1: Artifact vs non‑artifact (physics QA).
+    - Tier 2: Anatomical vs biological among artifact‑free regions.
+    - Tier 3: Biological subtype (regression, progression, inflammation) when supported by DW‑MRI (ADC) and/or FDG‑PET (SUV) and clinician consensus. ([ovid.com](https://www.ovid.com/journals/jacmp/fulltext/10.1002/acm2.70145~hounsfield-unit-characterization-and-dose-calculation-on-a?utm_source=openai))
+  - Accumulated dose features need an energy/mass‑conserving accumulation and DIR QA; otherwise you inject bias. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39546728/?utm_source=openai))
+  - Radiomics: mandate IBSI compliance, voxel resampling/discretization protocols, and site‑harmonization (e.g., ComBat) to stabilize delta‑features. ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC7193906/?utm_source=openai))
+  - Evaluation metrics: voxel‑wise classification on highly imbalanced labels is brittle; include region‑level detection (e.g., weakly‑supervised or supervoxel‑level F1), well‑calibrated probabilities (ECE/Brier), and uncertainty coverage via conformal prediction.  
+- Concrete fixes
+  - Labeling: Assemble small “silver‑standard” sets with DW‑MRI week‑3 ADC changes and mid‑treatment FDG‑PET SUV changes as biological references; literature supports week‑3 as informative in H&N. ([link.springer.com](https://link.springer.com/article/10.1007/s00330-023-09843-2?utm_source=openai))
+  - UQ: use deep ensembles + temperature scaling; add voxel‑wise conformal risk control to gate Task 3 actions.  
+  - External validation: hold‑out a different center/scanner; report AUC‑PR, DSC on biology masks, and clinical endpoints surrogate (e.g., residual‑volume detection).
+
+5.3 Task 3: Dose Optimization Strategies
+- Strengths
+  - Differentiating restoration vs adaptation is the right framing.
+- Mistakes/weak points
+  - The objective functions shown are nominal $L_2$ penalties to $d_\text{plan}$ or $d_\text{adapted}$; proton therapy requires robust optimization against range/setup (worst‑case, probabilistic chance constraints) and, ideally, 4D robustness for moving sites. Incorporate these explicitly. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/22320818/?utm_source=openai))
+  - Dose units: use Gy(RBE) consistently; if exploring LET‑aware or variable‑RBE objectives, state the model and constraints clearly and keep them exploratory. ([icru.org](https://www.icru.org/report/prescribing-recording-and-reporting-proton-beam-therapy-icru-report-78/?utm_source=openai))
+  - Escalation examples (“70→76 Gy”) must be framed as planning studies only and site‑specific; ensure OAR constraints and robust coverage across scenarios.  
+- Concrete upgrades
+  - Robust formulation (sketch): minimize a weighted sum of worst‑case (or CVaR) violations over a scenario set $S$ (range ±3.5%, setup ±3 mm; optional 4D phases for motion), with voxel‑wise weights from Task 2 confidence:
+    - minimize $\,\alpha\,\mathrm{CVaR}_\beta\big[\mathcal{L}_\text{targets}(d(s))\big] + \sum_j \lambda_j\,\mathrm{CVaR}_\beta\big[\mathcal{L}_{\text{OAR},j}(d(s))\big]$ subject to delivery constraints.
+    - For biology‑positive voxels, adapt prescriptions or priorities; for mixed/uncertain, interpolate weights. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/28044325/?utm_source=openai))
+  - Optional LET‑aware evaluation: penalize high LET×dose (“dirty dose”) in OARs and/or raise LET in residual GTV in exploratory studies; keep clinical reporting in Gy(RBE)=1.1 per ICRU 78. ([mdpi.com](https://www.mdpi.com/2072-6694/15/17/4268?utm_source=openai))
+  - Planning environment: use TPS robust MCO or research frameworks (e.g., matRad, GPU MC / fast surrogates) for speed; precompute scenario dose‑influence matrices. ([raysearchlabs.com](https://www.raysearchlabs.com/media/publications/white-papers/multi-criteria-optimization-in-raystation/?utm_source=openai))
+
+5.4 Task 4: In‑Silico Integration and Validation
+- Strengths
+  - Clear steps and success criteria.
+- Weak points
+  - “<10 minutes per fraction” needs a time budget (I/O, registration, inference, optimization, QA). Reference clinical implementations achieving ~7–10 minutes, but note your pipeline adds classification and robust optimization. Provide “fallback” plan and decision rules. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+  - Dose accumulation QA and log‑file reconstruction should be specified to verify delivered vs planned adaptation. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+- Concrete plan
+  - Target per‑fraction wall‑time (illustrative): import/QA 1–2 min; sCT/registration 2–3 min; Task‑2 inference 30–60 s; robust re‑opt 2–3 min; automated QA 1–2 min; clinician review 1–2 min. Pilot this offline first using cached scenario matrices and GPU MC or validated surrogates. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39307323/?utm_source=openai))
+
+6) Project Management (Timeline, Risks)
+- Strengths
+  - Milestones map to tasks.
+- Gaps and fixes
+  - Add gating milestones: A) obtain IRB/data‑sharing approvals; B) establish IBSI‑compliant radiomics pipeline; C) finalize dose accumulation QA; D) define RBE/LET policy (reporting in Gy(RBE); LET only for research). ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC7193906/?utm_source=openai))
+  - Add explicit risk: “Ground‑truth scarcity for biology.” Mitigation: prospective mid‑treatment DW‑MRI and/or FDG‑PET on a subset; multi‑reader labels; uncertainty‑aware decision thresholds. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/37405500/?utm_source=openai))
+  - Add computational risk mitigation: precomputation, GPU MC surrogates, and scenario‑free robust algorithms. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40414693/?utm_source=openai))
+
+7) Research Environment
+- Strengths
+  - Access to proton center and TPS is ideal.
+- Enhancement
+  - Confirm RayStation scripting/API access for robust optimization/MCO and potential LET evaluation tooling; cite the RayStation MCO capabilities. ([raysearchlabs.com](https://www.raysearchlabs.com/media/publications/white-papers/multi-criteria-optimization-in-raystation/?utm_source=openai))
+
+8) Expected Outcomes and Impact
+- Weak points
+  - Avoid implying clinical outcome improvement without a prospective trial. Rephrase to “dosimetric and in‑silico improvements and workflow feasibility,” with a plan for a future clinical study.
+
+9) References (quality control)
+- Issues
+  - Two “?” placeholders must be fixed.
+  - Key areas missing:
+    - Robust optimization in IMPT (worst‑case/chance‑constrained). ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/22320818/?utm_source=openai))
+    - OAPT feasibility/timing. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+    - IBSI and radiomics reproducibility. ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC7193906/?utm_source=openai))
+    - CBCT→sCT for proton dose and recent diffusion/sCT work. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+    - Dose accumulation pitfalls/energy‑conserving summation. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39546728/?utm_source=openai))
+    - Variable RBE/LET optimization state‑of‑the‑art and ICRU 78 for reporting. ([mdpi.com](https://www.mdpi.com/2072-6694/15/17/4268?utm_source=openai))
+- Action
+  - Replace [20] (hepatocellular carcinoma MVI radiomics) with disease/site‑relevant radiomics/IBSI sources.
+  - Add recent biology‑guided planning/dose painting feasibility in protons. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40926802/?utm_source=openai))
+
+Section‑specific redlines and replacements
+
+Abstract (suggested tightened ending)
+- “Dose will be reported as $D_\mathrm{RBE}$ in Gy(RBE) per ICRU 78. Optimization will be robust to range/setup uncertainties, with optional LET‑aware evaluation. Validation will prioritize dosimetric endpoints (range error, gamma, DVH) and, for biology labels, mid‑treatment DW‑MRI/FDG‑PET anchors.” ([icru.org](https://www.icru.org/report/prescribing-recording-and-reporting-proton-beam-therapy-icru-report-78/?utm_source=openai))
+
+Task 1 Validation (replace metrics paragraph)
+- “Primary: HU MAE and SPR RMSE; median absolute range error (mm) vs reCT; gamma pass rates (2%/2 mm, 1%/1 mm) in high‑dose voxels; ΔDVH for CTV/OARs. Secondary: LPIPS/precision‑recall; if FID is reported, specify extractor, sample size and confidence intervals. Downstream: dose‑recalc agreement and segmentation robustness.” ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+
+Task 2 Ground truth (add)
+- “We will curate a labeled subset with week‑3 DW‑MRI ADC and FDG‑PET SUV as biological references, plus blinded expert adjudication, and separate artifact screening.” ([link.springer.com](https://link.springer.com/article/10.1007/s00330-023-09843-2?utm_source=openai))
+
+Task 3 Optimization (replace equations sketch)
+- “We solve a robust multi‑objective with chance constraints:
+  - minimize $\,\mathrm{CVaR}_\beta\big[\sum_i w_i \ell_\text{PTV}(d_i(s)) + \sum_j \lambda_j \ell_{\text{OAR},j}(d_j(s))\big]$
+  - s.t. delivery constraints; scenarios $s\in S$ (range ±3.5%, setup ±3 mm; optional 4D phases).
+  - Biology‑positive voxels modify $w_i$ or prescriptions within OAR limits; uncertain voxels are weighted by Task‑2 confidence.” ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/28044325/?utm_source=openai))
+
+Dose reporting and RBE/LET policy (insert into Methods)
+- “All reported doses are $D_\mathrm{RBE}$ (Gy(RBE)) using clinical RBE=1.1. LET‑aware objectives and variable‑RBE explorations will be reported separately as research analyses and not used for clinical decision‑making.” ([icru.org](https://www.icru.org/report/prescribing-recording-and-reporting-proton-beam-therapy-icru-report-78/?utm_source=openai))
+
+In‑silico integration timing (add detailed budget)
+- “Target wall‑time: import/QA 1–2 min; registration/sCT 2–3 min; AI inference 0.5–1 min; robust re‑opt 2–3 min; automated QA 1–2 min; clinician review 1–2 min; fallback plan if any check fails.” ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+
+Ambiguities and text issues to fix
+- Clarify intended disease sites (recommend starting with H&N where CBCT→sCT and serial DW‑MRI/FDG‑PET evidence is strongest), then generalize to thorax/prostate. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+- Replace MRI hippocampus pilot as “methods sanity check” and commit to CT/CBCT‑based proton‑relevant pilots early in Year 1.
+- Replace “Gy” with “Gy(RBE)” throughout proton sections unless explicitly referring to physical dose. ([icru.org](https://www.icru.org/report/prescribing-recording-and-reporting-proton-beam-therapy-icru-report-78/?utm_source=openai))
+- Specify DIR algorithms and QA (landmarks/TRE, contour‑based metrics, Jacobian checks); for dose accumulation, use energy/mass‑conserving methods when anatomy changes. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39546728/?utm_source=openai))
+- Add interplay mitigation strategy for moving sites (4D robust planning, repainting). ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/33163404/?utm_source=openai))
+
+Suggested upgraded evaluation plan (retrospective)
+- Cohorts: H&N patients with daily CBCT/in‑room CT and mid‑treatment DW‑MRI/FDG‑PET subset.
+- Primary endpoints: Δrobust D95(CTV) and OAR DVH improvements vs anatomical‑only OAPT; time‑to‑adapt; pass rates of automated QA; scenario‑wise robustness.
+- Secondary: Correlation of Task‑2 “biology” maps with week‑3 ΔADC/ΔSUV; inter‑observer agreement; calibration (ECE), uncertainty coverage; LET‑aware analyses as exploratory. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+
+References to add/replace (representative; integrate into your list)
+- Robust IMPT: Fredriksson 2012 worst‑case; chance‑constrained IMPT; recent scenario‑free robust. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/22320818/?utm_source=openai))
+- OAPT feasibility/timing: first clinical daily OAPT; AI‑facilitated OAPT timing. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+- CBCT→sCT for proton dose (2022–2025): multi‑method comparisons and dosimetry. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+- Radiomics/IBSI and delta‑radiomics quality: IBSI manuals and recent systematic reviews. ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC7193906/?utm_source=openai))
+- Dose accumulation: energy/mass‑conserving summation; DIR advances. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39546728/?utm_source=openai))
+- RBE/LET: ICRU 78; LET‑guided optimization review; survey on RBE in Europe. ([icru.org](https://www.icru.org/report/prescribing-recording-and-reporting-proton-beam-therapy-icru-report-78/?utm_source=openai))
+- Biology‑guided planning/dose painting feasibility in protons. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40926802/?utm_source=openai))
+
+Proposed “minimum viable” reframing (what to lock first)
+- Site focus: Head‑and‑neck.
+- Biology anchor: Add a mid‑treatment DW‑MRI at week‑3 for a 20–30 patient subset; optional FDG‑PET in 10–15 cases. ([link.springer.com](https://link.springer.com/article/10.1007/s00330-023-09843-2?utm_source=openai))
+- Task‑1 deliverable: sCT for H&N with proton‑dose validation; abandon FID as primary metric; report range/gamma/DVH. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+- Task‑2 deliverable: a calibrated, uncertainty‑aware classifier gated by artifact screening and anchored to ΔADC/ΔSUV labels.
+- Task‑3 deliverable: robust re‑optimization with confidence‑weighted objectives running <3 minutes; report Gy(RBE) and scenario robustness.
+- Task‑4 deliverable: end‑to‑end offline replays with <10‑minute wall‑time; define hard clinical “no‑go” checks and fallback plan.
+
+Ethics, privacy, and QA
+- Synthetic data: perform and report membership‑inference audits; if distributing, use differentially private diffusion or release only models, not images. ([research.nvidia.com](https://research.nvidia.com/labs/toronto-ai/publication/2023_tmlr_dpdm/?utm_source=openai))
+- AI model development/reporting: follow the joint ESTRO–AAPM guideline and PROBAST+AI for risk‑of‑bias and documentation. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/38838989/?utm_source=openai))
+
+Final checklists you can paste into your protocol
+- Dose/units: Always Gy(RBE)=1.1 for reporting; document any LET/RBE explorations separately. ([icru.org](https://www.icru.org/report/prescribing-recording-and-reporting-proton-beam-therapy-icru-report-78/?utm_source=openai))
+- Robustness: Range ±3.5%, setup ±3 mm; consider 4D for moving sites; report worst‑case and probabilistic metrics. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/22320818/?utm_source=openai))
+- sCT acceptance: HU MAE; range error; gamma ≥97% (2%/2 mm) in high‑dose; ΔDVH thresholds agreed with clinicians. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+- Dose accumulation: use mass/energy‑conserving summation; document DIR QA. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39546728/?utm_source=openai))
+- Radiomics: IBSI‑compliant; fixed resampling/discretization; harmonize across scanners; pre‑register feature set. ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC7193906/?utm_source=openai))
+- Biology labels: week‑3 ΔADC and ΔSUV thresholds; blinded adjudication; inter‑rater kappa.
+- OAPT timing: precompute scenario matrices; cache segmentations; define fallback. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+
+Appendix: selected, load‑bearing citations to incorporate
+- Robust IMPT and chance constraints. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/22320818/?utm_source=openai))
+- Clinical OAPT timings/feasibility. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39293489/?utm_source=openai))
+- CBCT→sCT for proton dose accuracy (2022–2025). ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/40496807/?utm_source=openai))
+- IBSI standards and delta‑radiomics reproducibility. ([pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC7193906/?utm_source=openai))
+- Energy/mass‑conserving dose accumulation. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/39546728/?utm_source=openai))
+- ICRU 78 dose reporting (Gy(RBE)). ([icru.org](https://www.icru.org/report/prescribing-recording-and-reporting-proton-beam-therapy-icru-report-78/?utm_source=openai))
+- LET/RBE planning landscape. ([mdpi.com](https://www.mdpi.com/2072-6694/15/17/4268?utm_source=openai))
+- DW‑MRI/FDG‑PET mid‑treatment response markers. ([link.springer.com](https://link.springer.com/article/10.1007/s00330-023-09843-2?utm_source=openai))
+
+<details>
+<summary>Notes on figures and equations in the proposal</summary>
+- Use $...$ delimiters for formulas; define symbols once.  
+- Replace nominal $L_2$ restoration with robust, scenario‑based objectives.  
+- When showing dose‑escalation examples, append “reported in Gy(RBE), planning study only.” ([icru.org](https://www.icru.org/report/prescribing-recording-and-reporting-proton-beam-therapy-icru-report-78/?utm_source=openai))
+</details>
+
+If you want, I can deliver:
+- A rewritten 1–2 page Methods section reflecting the changes above (robust optimization, biology anchors, and dosimetry‑first validation).
+- A curated bib file with the updated sources (OAPT, IBSI, sCT for proton dose, robust IMPT, dose accumulation, RBE/LET).

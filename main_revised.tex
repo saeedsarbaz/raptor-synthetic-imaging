@@ -1,0 +1,907 @@
+\documentclass[12pt,a4paper]{article}
+
+% Essential Packages
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{cite}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usepackage{float}
+\usepackage{xurl}
+\usetikzlibrary{shapes,arrows,positioning}
+
+% Page geometry - maximize content space
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+
+% Hyperref setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    citecolor=blue,
+}
+
+% Title setup
+\title{\textbf{PhD Research Proposal}\\
+\vspace{0.3cm}
+\Large AI-Driven Anatomical and Response-Adapted Proton Therapy: \\
+Distinguishing Biological from Anatomical Changes for Personalized Dose Optimization}
+
+\author{Saeed Sarbazzadeh Khosroshahi\\
+\textit{RAPTORplus Marie-Sklodowska-Curie-Action EU Doctoral Network}\\
+\vspace{0.2cm}
+\small Supervisor: Professor Stine Sofia Korreman\\
+\small Aarhus University \& Aarhus University Hospital\\
+\small Danish Centre for Particle Therapy}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+% Abstract - concise, on first page
+\begin{abstract}
+\noindent Adaptive radiotherapy currently focuses on anatomical variations, using daily imaging to restore planned dose distributions when anatomy changes occur. However, many image changes during treatment reflect biological responses—tumor regression or progression, and early normal-tissue effects—which may require genuine dose adaptation rather than dose restoration. This PhD project aims to develop novel AI-based methods to distinguish between anatomical and biological components of daily image changes during proton therapy, and implement corresponding dose optimization strategies.
+
+The research will progress through four methodological tasks aligned with the RAPTORplus project objectives: (1) synthetic image generation to produce anatomically and biologically plausible training datasets; (2) AI-based response characterization using multimodal features including population anatomy models, radiomics, and accumulated dose; (3) dose optimization strategies executing appropriate restoration or adaptation based on change type; and (4) in-silico integration implementing a proof-of-concept pipeline for clinical evaluation. The pipeline outputs voxel- and region-level maps with calibrated probabilities and a conformal acceptance mask; these drive robust restoration for anatomical changes and escalation/de-escalation/redistribution for biological changes under organs-at-risk chance-constraint surrogates. All doses are reported in Gy(RBE); LET/RBE sensitivity analyses are exploratory and do not determine prescriptions.
+
+This work will contribute to the RAPTORplus vision of ``Right-time Adaptive Particle Therapy'' by enabling treatment personalization through both anatomical PLUS biological adaptation, ultimately improving patient outcomes through precision individualized radiation therapy.
+
+\noindent\textbf{Keywords:} Adaptive Proton Therapy, Artificial Intelligence, Radiomics, Dose Optimization, Biological Response, Medical Image Analysis
+\end{abstract}
+
+\newpage
+
+% =======================
+% 1. Introduction (1.5 pages)
+% =======================
+\section{Introduction}
+
+\subsection{Background and Motivation}
+
+Proton therapy offers superior dose conformality compared to conventional photon therapy due to the Bragg peak phenomenon, allowing precise dose deposition at tumor sites while sparing healthy tissues \cite{paganetti2012}. However, this precision increases sensitivity to anatomical variations—minor anatomy changes can cause significant dose perturbations due to the finite range of proton beams.
+
+Adaptive radiotherapy (ART) addresses interfractional variations by utilizing daily imaging to modify treatment plans. Recent clinical implementations of online adaptive proton therapy (OAPT) have demonstrated feasibility with adaptation workflows completing in approximately 7 minutes (range: 3.5–16 minutes) within standard 23-30 minute treatment slots \cite{albertini2024}. However, these current implementations focus primarily on \textit{anatomical adaptation}, restoring planned dose distributions when anatomical changes occur. This approach overlooks a critical aspect: many image changes reflect \textit{biological responses}—tumor regression/progression, tissue density changes, and early normal-tissue reactions—potentially necessitating genuine dose-level adaptation rather than simple restoration.
+
+To develop robust adaptive strategies, it is essential to systematically categorize the nature of image changes observed during treatment. We propose the following classification:
+
+\begin{itemize}
+    \item \textbf{Category A - Rigid Anatomical Changes:} Patient setup variations, rigid organ positioning shifts, and bladder/rectal filling changes. These are purely geometric and are typically addressed with setup correction and verification; re-optimization is only needed if robust coverage is compromised.
+    
+    \item \textbf{Category B - Deformable Anatomical Changes:} Inter-fraction organ shape or volume variations without underlying tissue property alterations (e.g., progressive parotid shrinkage, non-pathological organ deformation). These require deformable registration and dose restoration on the updated geometry.
+    
+    \item \textbf{Category C - Biological Response Changes:} Alterations in tissue microstructure and function reflecting treatment response or toxicity. Examples include:
+    \begin{itemize}
+        \item Tumor cellularity changes (detectable via diffusion-weighted MRI as increased apparent diffusion coefficient [ADC] indicating cell death/necrosis) \cite{trada2023}
+        \item Metabolic activity changes (FDG-PET standardized uptake value [SUV] and metabolic tumor volume [MTV] reductions) \cite{trada2023}
+        \item Inflammation and edema (early normal-tissue effects)
+        \item Fibrosis and tissue density modifications (late effects)
+    \end{itemize}
+    These changes may require dose escalation, de-escalation, or redistribution based on the specific biological response pattern, with DW-MRI/PET serving as biological anchors for labeling where available.
+    
+    \item \textbf{Category D - Technical Artifacts:} Imaging-related variations that do not reflect genuine anatomical or biological changes. Examples include cone-beam CT (CBCT) scatter artifacts causing Hounsfield Unit (HU) drift (variance of 2.6–7.2 HU in modern systems), beam hardening effects, and reconstruction-dependent inconsistencies \cite{gregg2025}. These are protocol- and object-dependent and must be identified and filtered to avoid erroneous adaptation decisions.
+\end{itemize}
+
+Daily CBCT/sCT cannot directly measure biological response; therefore, biology inference will be probabilistic and gated by conformal prediction. Mid-treatment DW-MRI (ADC) and/or FDG-PET (SUV) serve as Tier-3 biological anchors for label calibration where available via RAPTORplus collaborations. To prevent confounding, we apply physics QA (artifact detection for scatter, truncation, motion) and TG-132 DIR QA (inverse-consistency, Jacobian tails, landmarks/contours) so that intensity changes from acquisition or geometry are not misclassified as biology. Site-specific considerations (e.g., 4D motion and interplay in lung; MRI availability in head-and-neck) are integrated in the optimization and validation.
+
+The distinction between these categories is crucial for treatment optimization. Categories A and B (anatomical changes) require \textit{dose restoration} to maintain the original treatment plan on updated anatomy. Category C (biological changes) may require genuine \textit{dose adaptation}—escalation for tumor progression or residual disease, de-escalation for favorable response with opportunity for toxicity reduction, or redistribution for emerging normal-tissue effects. Category D (artifacts) should be corrected or accounted for in uncertainty analysis rather than triggering adaptation. Current clinical practice lacks robust methods to automatically distinguish between these change types, leading to suboptimal adaptive strategies that treat all changes as purely geometric. My PhD project addresses this gap by developing AI-based methods to characterize image changes across these categories and implement appropriate dose optimization strategies. All doses will be reported as Gy(RBE), and planning/evaluation will be performed under robust range and setup uncertainty scenarios.
+
+\subsection{Research Questions and Objectives}
+
+\textbf{Central Research Question:} \textit{How can we automatically distinguish between anatomical and biological components of daily image changes during proton therapy, and how should dose optimization strategies differ based on this characterization?}
+
+\textbf{Specific Objectives:}
+\begin{enumerate}
+    \item Develop and validate synthetic image generation methods producing anatomically and biologically plausible training datasets.
+    \item Build AI models distinguishing anatomy-driven from biology-driven changes using multimodal features including:
+    \begin{itemize}
+        \item Population anatomy models
+        \item IBSI-compliant radiomics features with site-wise harmonization \cite{zwanenburg2020ibsi}
+        \item Accumulated dose computed via mass- and energy-conserving dose summation method(s) \cite{zhong2024}, with deformable image registration (DIR) quality assurance per TG-132 (e.g., landmark/contour agreement, inverse-consistency, Jacobian checks) \cite{brock2017} and a validation goal of $<$1\% energy discrepancy for dose accumulation \cite{zhong2024}
+        \item Uncertainty measures and artifact detection
+    \end{itemize}
+    \item Design dose optimization algorithms executing appropriate restoration, adaptation, or combined strategies based on identified change types, incorporating:
+    \begin{itemize}
+        \item Robust plan optimization accounting for range and setup uncertainties
+        \item Confidence-weighted optimization for ambiguous regions
+        \item RBE and LET sensitivity analysis for biological adaptation scenarios; doses reported in Gy(RBE), with LET/RBE analyses treated as exploratory
+    \end{itemize}
+    
+    While routine clinical planning uses a constant RBE of 1.1, biological dose escalation scenarios (Category C) will incorporate LET-based evaluation using validated variable-RBE models (e.g., McNamara phenomenological model). For escalation cases, we will report: (1) Clinical dose (RBE=1.1), (2) LET distribution in escalation volumes, (3) Biological dose estimate (variable RBE), (4) $\Delta$NTCP sensitivity to RBE model choice. This dual reporting quantifies potential RBE effects while maintaining clinical RBE=1.1 as the regulatory baseline.
+    
+    \item Develop uncertainty quantification framework for robust decision-making including:
+    \begin{itemize}
+        \item Confidence scores for AI-based change classification
+        \item Conformal prediction thresholds for adaptation triggers
+        \item Quality metrics and acceptance criteria for DIR-based dose accumulation
+    \end{itemize}
+    
+    \item Implement a proof-of-concept pipeline integrating response categorization and adaptive dose planning within clinical treatment planning systems, with robust evaluation across uncertainty scenarios.
+\end{enumerate}
+
+\subsection{Expected Impact}
+
+This research will contribute:
+\begin{itemize}
+    \item \textbf{Scientific:} First systematic AI approach to distinguish anatomical from biological changes in adaptive radiotherapy.
+    \item \textbf{Clinical:} Improved outcomes through personalized dose adaptation.
+    \item \textbf{Efficiency:} Automated response characterization reducing manual planning burden.
+    \item \textbf{RAPTORplus:} Direct contribution to the consortium's mission of right-time adaptive particle therapy.
+\end{itemize}
+
+% =======================
+% 2. State of the Art (1.5 pages)
+% =======================
+\section{State of the Art}
+
+\subsection{Adaptive Proton Therapy}
+
+Online adaptive proton therapy (OAPT) has advanced from experimental concept to clinical reality. Recent implementations have demonstrated daily OAPT workflows completing in approximately 7–11 minutes (image registration through plan re-optimization; overall range about 3.5–16 minutes) within standard 23–30 minute treatment sessions \cite{albertini2024, gambetta2025}. Current clinical implementations (e.g., ProtOnART consortium) utilize AI-based automatic contouring, GPU-accelerated dose calculation engines, and automated quality assurance to enable routine daily adaptation \cite{gambetta2025}.
+
+In vivo verification methods, including prompt gamma imaging and PET, support progress toward closed feedback loops for near real-time verification and adaptation \cite{gambetta2025}. These technologies verify delivered dose distributions and detect range deviations during or immediately after treatment, informing subsequent adaptation decisions. However, current OAPT implementations focus primarily on anatomical adaptation—restoring planned dose distributions when patient geometry changes—without systematically distinguishing whether observed changes reflect anatomical variations or biological responses to treatment.
+
+Key challenges remain: computational efficiency for complex re-optimization, dose calculation uncertainty in the presence of anatomical changes, integration of biological response signals beyond geometric variations, robust handling of range/setup uncertainties, and avoidance of workflow disruption in clinical settings. Addressing these limitations requires automated methods to characterize the nature of daily image changes and execute appropriate adaptation strategies.
+
+\subsection{AI in Radiation Oncology}
+
+AI demonstrates transformative potential across radiotherapy workflows \cite{thompson2018}: deep learning auto-segmentation achieves Dice similarity coefficients ranging from 0.62--0.90 for clinical target volumes \cite{cardenas2019}, and CNNs predict dose distributions with $<2\%$ mean absolute errors \cite{nguyen2019}. Recent evaluations of CBCT-to-synthetic-CT conversion for proton therapy demonstrate that dose calculation accuracy—quantified by high gamma pass rates under stringent criteria (e.g., 1\%/2mm)—rather than image similarity metrics (SSIM, MAE) serves as the critical clinical validator \cite{vestergaard2024}.
+
+Radiomics reproducibility hinges on Image Biomarker Standardization Initiative (IBSI) compliance for feature extraction and harmonization methods (e.g., ComBat) for multi-center studies \cite{zwanenburg2020ibsi}. Delta-radiomics, capturing temporal feature changes during treatment \cite{fave2017}, exhibits mixed quality in current literature without rigorous longitudinal standardization. Radiomics and machine-learning approaches predict treatment response and toxicity \cite{lambin2017}, though biological response characterization remains underdeveloped.
+
+\subsection{Research Gap}
+
+While deep learning methods excel at geometric tasks (e.g., segmentation and registration) \cite{cardenas2019}, they focus on anatomy rather than biology. Biological response modeling traditionally uses empirical TCP/NTCP models \cite{niemierko1999}, with recent radiogenomics linking imaging to molecular biomarkers \cite{zhou2018}. \textbf{No validated framework currently disentangles biological versus anatomical drivers of image changes observed on daily proton therapy imaging.} Existing adaptive workflows treat all changes as primarily geometric, missing opportunities for biology-guided adaptation.
+
+Serial functional imaging—diffusion-weighted MRI (DW-MRI) and FDG-PET—obtained mid-treatment can serve as ``biological anchors'' to characterize tumor response and normal tissue effects \cite{trada2023}. Synthetic medical image generation using diffusion probabilistic models \cite{kazerouni2023}, deformable registration \cite{brock2017}, and emerging deep learning approaches \cite{yi2019} provide foundation for addressing training data scarcity. Delta-radiomics showing temporal feature changes during treatment \cite{fave2017} offers potential biomarkers for biological response characterization, though requires rigorous standardization for clinical translation.
+
+% =======================
+% 3. Methodology (4 pages)
+% =======================
+\section{Methodology}
+
+The methodology progresses through four interconnected tasks, each building on the previous. Figure \ref{fig:methodology_overview} illustrates the overall pipeline.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_methodology_overview.png}
+\caption{Overview of the four-task pipeline. Daily CBCT/in-room CT (converted to sCT) and population/IBSI-harmonized radiomics feed AI-based response characterization with uncertainty and artifact detection. Dose adaptation uses robust IMPT with confidence-weighted objectives, reported in Gy(RBE). Validation and QA occur within the TPS; optional LET-aware analyses and in-vivo verification inform subsequent fractions.}
+\label{fig:methodology_overview}
+\end{figure}
+
+\subsection{Task 1: Synthetic Image Generation}
+
+\subsubsection{Objective}
+Generate proton-dose-valid synthetic imaging in CT/CBCT (and sCT derived from CBCT via the clinical converter) that independently controls:
+\begin{itemize}
+    \item \textbf{Geometry} (anatomical change) via validated diffeomorphic deformations
+    \item \textbf{Texture/intensity} (biological change) via conditional generative models  
+    \item \textbf{Acquisition effects} via a CBCT digital twin
+\end{itemize}
+All Task 1 validation is CT/CBCT/sCT-only and dose-centric (HU/SPR, range, dose). MRI/PET are reserved for Task 2 as optional biological anchors (ADC/SUV labels), not for HU/SPR or dose validation.
+
+\subsubsection{Approach}
+
+I will implement a multi-method pipeline combining three complementary approaches:
+
+\paragraph{Method 1: Deformation-Based Anatomical Variation (Topology-Safe).}
+Generate anatomical variations using topology-preserving deformations. Given reference CT $I_{\text{ref}}$, synthetic anatomy is:
+$$I_{\text{anat}}(x) = I_{\text{ref}}(\phi_{\text{anat}}(x))$$
+using stationary-velocity formulation:
+$$\phi_{\text{anat}} = \exp(v), \quad v(x) = \sum_{i=1}^{K} a_i v_i(x)$$
+where $v_i$ are PCA modes learned from population DVFs. Safety and QA: $\det(\nabla\phi) > 0$ (no foldings), inverse-consistency checks, Jacobian histogram bounds, tissue HU bounds preserved.
+
+\textbf{Implementation:} Pre-processing includes rigid alignment to $I_{\text{ref}}$, bias-field correction, HU clipping to [-1000, 2000], and resampling to 1--1.5mm. Deformable image registration uses regularized B-spline or stationary-velocity (vSVF/LDDMM-style) DIR with Jacobian checks. PCA is performed on DVFs in physical units (mm), retaining $K$ components capturing $\geq$90\% cumulative variance. Quality assurance includes landmark/contour agreement, inverse-consistency error, and Jacobian histogram analysis to ensure no foldings. HU/SPR preservation is validated with tissue-class bounds to prevent tearing artifacts.
+
+\paragraph{Method 2: Diffusion-Based Biological Response (Dose/Time-Conditioned).}
+Conditional 3D DDPM (U-Net) models realistic intensity/texture changes in tumor and parenchyma conditioned on accumulated dose and time index. Leakage controls: dose-dropout masking, counterfactual dose shuffles, negative controls (no-dose training), and tissue-bounded HU priors. \textbf{Scope:} CT/CBCT only in Task 1; MRI/PET conditioning appears only in Task 2 for supervised labels.
+
+\textbf{Leakage Controls and Disentanglement:} Biology synthesis uses disentangled latents (anatomy fixed, biology varying), dose-dropout during training (randomly zero out dose 30\% of epochs), and inference-time dose shuffles to prove that generated biological textures are not trivial encodings of dose. Negative controls (no-dose training runs) and tissue-bounded HU priors ($-1000$ to $+2000$ HU) prevent unrealistic intensities. Counterfactual testing confirms biology predictions remain stable under dose perturbations ($\pm 20\%$ dose scaling yields $<5\%$ texture change).
+
+\textbf{Implementation:} I will train a conditional 3D U-Net architecture using PyTorch on paired baseline/follow-up CT scans with dose distributions as conditioning information. Figure \ref{fig:synthetic_generation} illustrates the generation pipeline.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_synthetic_generation.png}
+\caption{Synthetic image generation pipeline (Task 1) combining deformation-based anatomical variations and diffusion-based biological responses. \textbf{Task 1 scope:} CT/CBCT only for all validation (HU/SPR, range, dose). The pipeline generates training datasets capturing both geometric and biological changes essential for Task 2 AI model development. \textbf{Note:} MRI/PET serve as optional biological anchors (ADC/SUV labels) in Task 2 for response characterization only, not for Task 1 HU/SPR or dose validation. CBCT simulator includes provenance check (hash \texttt{f4caab769655}) between forward projection and reconstruction to prevent parameter drift.}
+\label{fig:synthetic_generation}
+\end{figure}
+
+\paragraph{Method 3: Hybrid Composition + Acquisition Simulator (CBCT$\rightarrow$sCT).}
+\textbf{Hybrid composer:} $I_{\text{hyb}} = \mathcal{A}(I_{\text{anat}}, \Delta I_{\text{bio}})$ with masks from propagated structures or learned attention; partial-volume-aware blending and HU bounds enforced.
+
+\textbf{CBCT Digital Twin (Validated):} Guarantees forward/inverse operator consistency, geometry correctness, and realistic acquisition effects.
+
+\textit{Geometry guard (flat detector):}
+$$\text{FOV} = N_{\text{pix}} \cdot \text{pixel}_{mm} \cdot \frac{\text{SAD}}{\text{SDD}}$$
+Enforce $\text{FOV}_{x,y} \geq 1.05 \times \text{volume size}$.
+
+\textit{Frozen scanner baseline (Task 1):} SAD = 1000 mm; SDD = 1300 mm; Detector = 1024$\times$1024 @ 0.388 mm/pixel; Views = 360 over $200^\circ$ (Parker short-scan).
+
+\textit{Reconstruction:} ASTRA FDK (CUDA), FilterType = Hann, FilterD = 0.8, voxel supersampling = 2, shading correction ($\sigma \approx 25$ mm).
+
+\textit{Physics-informed reconstruction and scatter:} Polyenergetic FDK with beam-hardening compensation and truncation correction. Replace simple $\hat{S}=\alpha\cdot\text{blur}(\hat{I})$ with physics-informed scatter model: single-scatter calculation plus density-dependent residual, or MC-assisted estimation. Pedestal removal and density-aware corrections applied to reduce lung bias.
+
+\textit{SPR Calibration and Validation:} Validate SPR using stoichiometric calibration and/or direct SPR predictors. Report per-tissue SPR RMSE $\leq 0.02$ and joint WEPL/dose fidelity: median WEPL error $\leq 1.5$ mm; $P95\leq 3$ mm across $10^4$ rays per beam.
+
+\textit{Primary Acceptance Requirement:} Must meet SPR RMSE targets AND WEPL/dose gamma equivalence ($\Delta\gamma_{\text{pass}}\leq 5$ pp at $2\%/2$ mm) concurrently; failure in either prompts reconstruction/scatter recalibration.
+
+\textit{Provenance:} SHA-256 fingerprint (\texttt{f4caab769655}) of geometry/angles/$I_0$/scatter in each projection bundle; reconstruction asserts match.
+
+
+\subsubsection{Preliminary Feasibility (CT/CBCT only)}
+We validated the deformation$\rightarrow$acquisition$\rightarrow$reconstruction stack end-to-end in CT/CBCT using the digital twin and a one-step scatter correction. Across five respiratory phases, two targets were met (PSNR, NCC) and two were very close (SSIM at 93\% of target; lung bias within +65--68 HU). Complete results in Table~\ref{tab:task1_results}.
+
+\begin{table}[H]
+\centering
+\caption{Task 1 Acquisition and Reconstruction Gates (Achieved)}
+\label{tab:task1_results}
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{Target} & \textbf{Achieved (5 cases)} \\
+\midrule
+Digital-twin SSIM (ideal) & $\geq$ 0.85 & $\approx$ 0.91 \\
+Digital-twin PSNR (ideal) & $\geq$ 30 dB & $\gg$ 30 dB \\
+PSNR (realistic CBCT) & $\geq$ 20 dB & 23.2--23.5 dB \\
+NCC (realistic CBCT) & $\geq$ 0.85 & 0.846--0.850 \\
+SSIM (realistic CBCT) & $\geq$ 0.85 (stretch) & 0.779--0.794 \\
+Lung HU bias & $\pm$60 HU (stretch) & +65--68 HU \\
+Geometry/FOV guard & Must satisfy & $\text{FOV}_{x,y} \geq 1.05 \times \text{volume size}$ (pass) \\
+Provenance check & Must match & Pass (hash \texttt{f4caab769655}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_task1_real_results.png}
+\caption{Task 1 CBCT validation results across 5 respiratory phases. Bar charts show achieved values against target thresholds for PSNR (top left), NCC (top right), SSIM (bottom left), and lung HU bias (bottom right). Green bars indicate targets met (PSNR $\geq$20 dB, NCC $\geq$0.85). Yellow/orange bars indicate metrics very close to stretch targets (SSIM at 93\%, lung bias at 113\%). Results demonstrate successful digital twin validation and realistic CBCT simulation with scatter correction.}
+\label{fig:task1_cbct_validation}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_task1_real_comparison.png}
+\caption{Ground truth vs CBCT reconstruction comparison for the mean respiratory phase case. (Left) Ground truth CT showing lung anatomy. (Middle) CBCT reconstruction with one-step scatter correction applied. (Right) Difference map (reconstruction - ground truth) using diverging colormap (blue = negative error, red = positive error) centered at 0 HU with range $\pm$150 HU. The close visual similarity and localized differences validate the CBCT simulator accuracy and effectiveness of scatter correction. \textbf{Bias:} Systematic positive bias in lung regions consistent with cohort results (see Table~\ref{tab:task1_results}); soft-tissue bias within acceptable range for CBCT.}
+\label{fig:task1_gt_comparison}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_task1_real_profile.png}
+\caption{HU line profile through the mean case reconstruction (axial center slice). Ground truth (black dashed line) vs CBCT reconstruction (blue solid line) showing close agreement across lung and soft tissue regions. Orange shaded area represents the difference between profiles. Cyan-shaded regions indicate lung tissue ($\approx$ -800 HU). The profile demonstrates that scatter correction successfully brings CBCT HU values closer to ground truth, with residual bias localized primarily to low-density lung regions, consistent with cohort statistics in Table~\ref{tab:task1_results} (lung bias +65--68 HU).}
+\label{fig:task1_profile}
+\end{figure}
+
+
+\subsubsection{Validation}
+
+Synthetic images will be validated through a hierarchical framework prioritizing dosimetric accuracy for proton therapy, with pre-registered acceptance criteria.
+
+\paragraph{Primary Validation: Dose-Centric Metrics (Pre-Registered)}
+\begin{itemize}
+    \item \textbf{HU/SPR accuracy:} Mean absolute error (MAE) in Hounsfield Units relative to ground-truth CT. \textit{Acceptance:} HU MAE $\leq$ 40 HU (soft tissue) and $\leq$ 80 HU (bone). If SPR maps available, SPR RMSE $\leq$ 0.02
+    \item \textbf{Proton range fidelity:} Compute water-equivalent path length (WEPL) along clinical beam rays to the distal 80\% isodose surface; report median absolute range error across $10^4$ sampled rays per beam. \textit{Acceptance:} Median $\leq$ 1.5mm and 95th percentile $\leq$ 3mm
+    \item \textbf{Dose recalculation:} Monte Carlo dose engine (RayStation MC or TOPAS) for clinical beams. 3D gamma analysis in high-dose voxels ($\geq$ 50\% prescription) at 2\%/2mm and 1\%/1mm criteria. \textit{Equivalence margin:} $\Delta\gamma_{\text{pass}} \leq$ 5 percentage points
+    \item \textbf{DVH fidelity:} Targets: $\Delta$D95, $\Delta$D98; organs-at-risk: $\Delta$Dmean, $\Delta$Dmax. \textit{Equivalence:} $|\Delta| \leq$ 2\% of prescription dose (targets) and $\leq$ 2Gy for OAR means
+    \item \textbf{Outlier detection:} Percentage of cases with dose error $>$ 3\% or range error $>$ 3mm; investigate root cause (artifact vs. anatomy class)
+\end{itemize}
+
+\paragraph{Statistics and Sample Size}
+All metrics reported with 95\% confidence intervals via bias-corrected and accelerated bootstrap (BCa, $B=2000$ resamples). Two One-Sided Tests (TOST) for equivalence with margins specified above. Pre-specified sample size: $n \geq 30$ cases per anatomical site to achieve 80\% power for $\Delta\gamma_{\text{pass}} \leq 5\%$.
+
+\paragraph{Secondary Validation: Image Quality and Perceptual Metrics}
+Structural similarity (SSIM), peak signal-to-noise ratio (PSNR), and learned perceptual similarity (LPIPS) reported as complementary assessments.
+
+\paragraph{Expert Review}
+Clinical physicists and radiation oncologists assess whether synthetic images exhibit realistic anatomical variability and identify artifacts compromising AI training.
+
+\paragraph{Data Governance and Privacy}
+Mitigate memorization risks inherent in diffusion models on small datasets:
+\begin{itemize}
+    \item \textbf{Membership-inference testing:} Audit whether the generative model distinguishes training vs. holdout samples
+    \item \textbf{Differential privacy:} If shared externally, train with DP-SGD and report privacy budget ($\epsilon$, $\delta$)
+    \item \textbf{Provenance:} Model cards for each synthetic release (anatomy modes, seed, site, version)
+\end{itemize}
+
+\paragraph{Ablation Studies (Pre-Specified)}
+\begin{itemize}
+    \item Anatomy-only vs. biology-only vs. hybrid generation
+    \item CT-domain vs. sCT-domain dose differences
+    \item With vs. without dose-dropout conditioning
+    \item Training on HU vs. SPR targets
+\end{itemize}
+
+\paragraph{Connecting Task 1 to Task 2:}
+The synthetic datasets generated in Task 1 provide a controlled environment for training AI models in Task 2. By producing labeled examples of both anatomical variations (through deformation fields) and biological responses (through diffusion-based modeling), these synthetic cohorts enable supervised learning where ground truth is known. This addresses the fundamental challenge in adaptive therapy: acquiring sufficient real patient data with verified biological vs. anatomical labels is clinically infeasible. The synthetic approach thus enables robust AI model development before deployment on real patient cohorts.
+
+\subsection{Task 2: AI-Based Response Characterization}
+
+\subsubsection{Objective}
+Distinguish anatomy-driven from biology-driven image changes on daily CT/CBCT/sCT, producing voxel- and region-level maps with calibrated uncertainty to drive Task 3 dose decisions. Ground truth follows a 3-tier protocol to avoid confounding physics artifacts with biology:
+\begin{itemize}
+    \item \textbf{Tier 1 (Physics QA):} artifact vs non-artifact
+    \item \textbf{Tier 2 (Non-artifact):} anatomical vs biological
+    \item \textbf{Tier 3 (Biology subtype):} regression, progression, inflammation, fibrosis when supported by DW-MRI (ADC) and/or FDG-PET (SUV) and clinician consensus
+\end{itemize}
+
+\subsubsection{Feature Engineering (IBSI-Compliant, Harmonized)}
+
+\textbf{Imaging deltas:} Intensity and texture changes between baseline and fraction images (CT/CBCT/sCT), resampled to common spacing (e.g., 1.5 mm iso), clipped to [-1000, 2000] HU, bias-field corrected if needed.
+
+\textbf{Population anatomy deviations:} Project local DVFs onto PCA modes; magnitude and orthogonal deviation scores from population latent space flag out-of-distribution changes likely biological.
+
+\textbf{Radiomics (IBSI):} GLCM/GLRLM/GLSZM + shape features on fixed bin width (e.g., 25 HU) with standardized resampling/discretization; delta-radiomics on aligned ROIs. Site harmonization via ComBat; retain site covariates for audit.
+
+Delta-radiomics extraction follows IBSI Part 2 (February 2024):
+\begin{enumerate}
+    \item Rigid + DIR alignment to planning CT (reference geometry)
+    \item Propagate ROIs to all fractions via DIR with TG-132 QA
+    \item Extract IBSI features at baseline and fraction k on SAME voxel grid
+    \item Compute $\Delta$feature = (fraction\_k - baseline) / baseline
+    \item Site-wise ComBat harmonization on $\Delta$features
+    \item Feature selection: remove features with ICC $<0.75$ across test-retest
+\end{enumerate}
+
+Features: GLCM (contrast, correlation, energy, homogeneity), GLRLM (SRE, LRE, GLN), GLSZM (SZE, LZE, ZP), shape (volume, sphericity). Bin width: 25 HU. Resampling: 1.5mm isotropic.
+
+\textbf{Accumulated dose (mass-/energy-conserving):} Dose per fraction $D_s(x)$; density $\rho_s(x)$; deformation $\phi_{s\to t}$ to target $t$; Jacobian $J_{s\to t}(x)=\det(\nabla \phi_{s\to t}(x))$. 
+
+Energy accumulation in target coordinates:
+$$E_t(y)=\sum_s D_s\!\big(\phi^{-1}_{s\to t}(y)\big)\,\rho_s\!\big(\phi^{-1}_{s\to t}(y)\big)\,J^{-1}_{s\to t}\!\big(\phi^{-1}_{s\to t}(y)\big)\,V_t$$
+
+Dose recovery:
+$$D_{\text{acc}}(y)=\frac{E_t(y)}{\rho_t(y)\,V_t}$$
+
+\textbf{DIR QA (SITE-SPECIFIC per TG-132):}
+\begin{itemize}
+    \item \textbf{Head-neck:} Landmark RMSE $\leq 2$–$3$ mm
+    \item \textbf{Lung:} Landmark RMSE $\leq 3$–$5$ mm (motion tolerance higher)
+    \item \textbf{All sites:} Inverse-consistency error within bounds; Jacobian histograms: $P01 \geq 0.8$, $P99 \leq 1.25$, negatives $\leq 0.5\%$
+\end{itemize}
+Mappings failing site-specific gates are rejected.
+
+\textbf{Artifact/physics features:} Shading map residuals, low-frequency bias estimators, motion blur metrics,reconstruction residuals; CBCT acquisition metadata (angles, filter, $I_0$, scatter $\alpha$) for provenance.
+
+\subsubsection{Domain Adaptation and Causal Controls}
+
+We apply domain-adversarial training and test-time entropy minimization to handle scanner/site distribution shifts beyond ComBat. Physics provenance (angles, filter, $I_0$, scatter $\alpha$) enters the physics QA gate only; downstream multimodal branches are regularized to reduce dependence on acquisition parameters after artifact masking. Training includes simulated scatter (varying $\alpha$), truncation, and motion blur to ensure classification robustness; sensitivity curves to acquisition perturbations are reported.
+
+\subsubsection{Classification Model (with Physics Gate and Uncertainty)}
+
+\textbf{Architecture:}
+\begin{itemize}
+    \item \textbf{Physics QA gate:} Binary classifier (artifact vs non-artifact) using physics features + imaging residuals; masks artifacts out of downstream branches
+    \item \textbf{Multimodal branches (non-artifact voxels only):} 3D CNN imaging branch for delta volumes (CT/CBCT/sCT); Dose encoder for $D_{\text{acc}}$ + scenario summaries; Radiomics encoder (IBSI); Population anatomy encoder (PCA latent deviations)
+    \item \textbf{Fusion + attention:} Spatial attention weights features by local reliability; integrates physics QA signals
+    \item \textbf{Uncertainty and calibration:} Deep ensembles ($N=5$) + temperature scaling; outputs class probabilities, variance, and nonconformity scores
+    \item \textbf{Outputs:} Voxel-level classes \{anatomical, biological, mixed\} + confidence; region proposals (supervoxels) with calibrated probabilities; conformal acceptance mask for adaptation triggers
+\end{itemize}
+
+Figure~\ref{fig:response_characterization} illustrates this architecture.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_response_characterization.png}
+\caption{Task 2 multimodal architecture with physics QA gate, IBSI-compliant radiomics, mass-/energy-conserving dose accumulation, and uncertainty calibration. The model outputs voxel- and region-level classifications (anatomical/biological/mixed) with calibrated probabilities and a conformal acceptance mask to safely trigger Task 3 adaptation.}
+\label{fig:response_characterization}
+\end{figure}
+
+\subsubsection{Training Strategy}
+\textbf{Supervised pretraining (synthetic cohorts):} Use Task 1 synthetic data with known decomposition; include negative controls (biology-absent) and counterfactual dose shuffles to prevent dose leakage.
+
+\textbf{Multi-tier ground truth strategy (real cohorts):}
+
+Ground truth follows a pragmatic multi-tier approach:
+
+\textbf{PRIMARY (Synthetic - controlled labels):}
+\begin{itemize}
+    \item Task 1 generates images with KNOWN anatomy/biology decomposition
+    \item Training uses synthetic with perfect labels
+    \item Internal validation on synthetic holdout
+\end{itemize}
+
+\textbf{SECONDARY (Clinical surrogates):}
+\begin{itemize}
+    \item Tumor volume change $>30\%$ at fraction 15-20 (regression surrogate)
+    \item Tissue density changes ($\Delta$HU in GTV/CTV)
+    \item Clinician consensus on progression/regression (2+ reviewers)
+\end{itemize}
+
+\textbf{TERTIARY (Biological anchors - where available):}
+\begin{itemize}
+    \item RAPTORplus partner sites with mid-treatment DW-MRI (ADC) or PET (SUV)
+    \item External validation on $n\geq 20$ cases if biological imaging available
+\end{itemize}
+
+\textbf{LIMITATIONS ACKNOWLEDGED:} Primary validation is synthetic-to-synthetic (controlled experiment); real-world biological labels are surrogates pending functional imaging availability.
+
+\textbf{Class imbalance and calibration:} Focal loss or class-balanced loss; post-hoc temperature scaling; evaluate ECE/Brier.
+
+\textbf{Harmonization:} IBSI compliance; site-wise ComBat; hold-out an external center for generalization testing.
+
+\subsubsection{Evaluation and Acceptance Criteria}
+
+\begin{table}[H]
+\centering
+\caption{Task 2 Acceptance Gates}
+\label{tab:task2_acceptance}
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Category} & \textbf{Metric} & \textbf{Target} \\
+\midrule
+Region detection & Supervoxel F1 (biology) & $\geq$ 0.65 \\
+Region detection & DSC (biology mask) & $\geq$ 0.60 \\
+Class discrimination & AUC-PR (biology, external center) & $\geq$ 0.70 \\
+Calibration & ECE (post-TS) & $\leq$ 0.05 \\
+Calibration & Brier score & $\leq$ 0.18 \\
+Uncertainty & Conformal coverage ($\alpha=0.10$) & $\geq$ 0.90 \\
+Robustness & False adaptation (artifact-only) & $\leq$ 5\% \\
+DIR QA & Jacobian P01/P99, negatives & P01 $\geq$ 0.8; P99 $\leq$ 1.25; $\leq$ 0.5\% \\
+Provenance & Hash match & Required \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Region-level detection (primary):} Supervoxel F1 $\geq$ 0.65 for biological regions; DSC $\geq$ 0.60; AUC-PR $\geq$ 0.70 on external center.
+
+\textbf{Calibration and uncertainty:} ECE $\leq$ 0.05 after temperature scaling; Brier $\leq$ 0.18; Conformal prediction ($\alpha=0.10$): coverage $\geq$ 0.90; false-adaptation rate $\leq$ 5\% on artifact-only cases.
+
+\textbf{Physics QA/DIR gates:} TG-132: inverse-consistency within bounds, Jacobian P01 $\geq$ 0.8, P99 $\leq$ 1.25, negative Jacobians $\leq$ 0.5\%.
+
+\subsubsection{Conformal Prediction for Adaptation Triggers}
+Nonconformity score $s(x)=1-p_{\max}(x)$ estimated on calibration data. Threshold $\tau_\alpha$ is the $(1-\alpha)$ quantile of $s$; acceptance set $\{x:\,s(x)\le \tau_\alpha\}$. 
+
+\textbf{Trigger policy:} Escalate only where $p_{\text{bio}}\ge 0.8$ and $x$ is conformal-accepted; mixed $\rightarrow$ weighted optimization in Task 3; rejected $\rightarrow$ restore or defer.
+
+\subsubsection{Calibration and Drift Monitoring}
+A held-out calibration set per site tunes temperature scaling; we monitor drift (ECE $>0.05$ triggers re-fit). Conformal acceptance $\mathcal{A}=\{x:\,s(x)\leq\tau_\alpha\}$ uses site-wise calibration to preserve coverage under shift. Calibration dataset: 30\% of training data withheld; conformal threshold $\tau_\alpha$ is $(1-\alpha)$ empirical quantile with $\alpha=0.10$ for 90\% coverage. Validation verifies coverage $\geq 0.90$ on external holdout.
+
+\subsubsection{Artifact Filter and Robustness}
+Physics gate masks artifacts (CBCT scatter/shading, motion, truncation). Robustness tests: simulate acquisition variations and ensure stable classifications; report sensitivity.
+
+\subsubsection{Connecting Task 2 to Task 3}
+Export maps: \{anatomical, biological, mixed\} with confidence and conformal mask. Provide voxel weights $w_{\text{targets}}(x)$ and $w_{\text{OAR}}(x)$ scaled by confidence for robust optimization. Flag uncertain regions for conservative restoration; high-confidence biology for adaptation.
+
+
+
+\subsection{Task 3: Dose Optimization Strategies}
+
+\subsubsection{Objective}
+Execute confidence-aware robust dose optimization that:
+\begin{itemize}
+    \item Restores dose on anatomy-driven changes (Category A/B)
+    \item Adapts dose on biology-driven changes (Category C) using escalation/de-escalation and redistribution
+    \item Defers changes on artifact-driven regions (Category D) and uncertain voxels (via conformal rejection)
+\end{itemize}
+
+\subsubsection{Inputs from Task 2}
+From Task 2, we consume: voxel-level classes $c(x)\in\{\text{anatomical},\text{biological},\text{mixed}\}$; calibrated probabilities $p_{\text{anat}}(x)$, $p_{\text{bio}}(x)$, $p_{\text{mixed}}(x)$ and conformal acceptance mask $\mathcal{A}$; confidence-scaled weights $w_{\text{targets}}(x)$ and $w_{\text{OAR}}(x)$ for optimization; biological subtypes (regression, progression, inflammation, fibrosis) when available.
+
+\subsubsection{Robust Optimization Formulation}
+Let $\mathcal{S}$ be the robust scenario set (setup $\pm 3$ mm; range $\pm 3.5\%$). Let $\Omega_T$ be target voxels; $d_s(x)$ dose in scenario $s$; $d^{\text{plan}}(x)$ original plan dose. Use conformal acceptance set $\mathcal{A}$. Report dose in Gy(RBE) with clinical $RBE=1.1$; LET/RBE sensitivity is exploratory.
+
+We optimize robust clinical objectives (target $D_{95}$/$D_{98}$, homogeneity, conformity; OAR max/mean) over $\mathcal{S}$ using ROI-level prescriptions for biological regions. A spatial regularizer (e.g., total variation penalty) smooths dose painting to avoid voxel-scale discontinuities and ensure deliverability.
+
+\textbf{RESTORATION (anatomy):} Restore $D_{95}$, $D_{98}$ to original plan values on conformal-accepted anatomical ROIs.
+
+\textbf{ADAPTATION (biology):} Modify ROI prescription by $\Delta$ (e.g., +5 to +10 Gy for regression/progression; -5 to -10 Gy for favorable response) where $x\in\mathcal{A}$ and $p_{\text{bio}}(x)\ge 0.8$.
+
+\textbf{MIXED:} Weighted ROI prescription $\lambda D_{\text{plan}} + (1-\lambda)D_{\text{adapt}}$ with per-voxel $\lambda(x)=\frac{p_{\text{anat}}(x)}{p_{\text{anat}}(x)+p_{\text{bio}}(x)+\varepsilon}$ averaged over ROI.
+
+\textbf{OAR robustness with chance-constraint surrogate:} Let $\overline d_s(j)$ be the OAR summary dose for organ $j$ (e.g., mean or max). Enforce a high-quantile bound:
+$$\text{Quantile}_{q}\!\big(\overline d_s(j)\big)\le d^{\text{limit}}_j,\;\; q\approx 0.9$$
+Implement via worst-case or CVaR surrogate:
+$$\min\; \sum_{j}\text{CVaR}_{\beta}\!\Big(\big[\overline d_s(j)-d^{\text{limit}}_j\big]_+\Big),\;\; \beta\in[0.9,0.95]$$
+
+\textbf{Confidence gating and deferrals:} Apply objectives only on conformal-accepted voxels $x\in\mathcal{A}$. For $x\notin\mathcal{A}$, use restoration to the safest prior or defer changes.
+
+\subsubsection{Adaptation Policy (Biology Subtypes)}
+
+Biology-driven escalation $\Delta$ is capped by OAR limits and constrained to ROI-level maps; $x\in\mathcal{A}$ and $p_{\text{bio}}(x)\ge 0.8$ trigger adaptation; mixed regions use weighted blending; uncertain/artifact regions restore or defer. Physician override is supported.
+
+\textbf{Escalation dose prescription ranges:}
+\begin{itemize}
+    \item \textbf{Regression (residual disease):} Escalate residual disease with $\Delta$ = +5 to +10 Gy·$p_{\text{bio}}$ if OAR limits permit; redistribute sparing to OARs
+    \item \textbf{Progression:} Escalate $\Delta$ = +5 Gy minimum, up to +10 Gy if OAR robust constraints satisfied; otherwise redistribute within target to maximize EUD while respecting OAR chance-constraints
+    \item \textbf{Inflammation/early toxicity:} De-escalate or shift dose away from flagged normal tissues; protect with tightened OAR constraints ($\Delta$ = -5 to -10 Gy)
+    \item \textbf{Fibrosis/late effects:} Deprioritize escalation in affected normal tissue; prefer redistribution within target
+    \item \textbf{Constraint:} OAR $D_{\max}$ increase $\leq$ 2 Gy across all scenarios in $\mathcal{S}$
+\end{itemize}
+
+\textbf{Triggers:} Escalation only where $x\in\mathcal{A}$ and $p_{\text{bio}}(x)\ge 0.8$. Mixed $\rightarrow$ weighted blend; Uncertain/artifact $\rightarrow$ restoration or defer.
+
+\subsubsection{Deliverability and Safety}
+\textbf{PBS deliverability:} Enforce spot MU bounds, energy layer limits, and repainting ($\ge 2$) for motion interplay mitigation. \textbf{Robust scenario bank:} $|\mathcal{S}|=9$--12 (Cartesian shifts and range scalings). \textbf{Range safety:} Distal fall-off guard via WEPL checks; avoid distal hotspots beyond $d^{\text{limit}}_j$. \textbf{Provenance:} Hash match required for input maps and dose engine configs.
+
+EXPANDED SCENARIO BANK: $\mathcal{S}$ includes correlated setup/range scenarios and HU$\rightarrow$SPR bias models for sCT uncertainty. For motion sites (lung), add 4D respiratory phases and interplay simulations with repainting $\geq 3$--4, gating, or breath-hold as clinically appropriate.
+
+CVaR IMPLEMENTATION: Approximate $\text{CVaR}_\beta$ within TPS by identifying worst $\beta$ fraction of scenarios per OAR summary dose $\overline{d}_s(j)$ and applying \texttt{QuadraticOverdose} penalties to that subset.
+
+\subsubsection{Implementation}
+Clinical TPS integration (e.g., RayStation API): Map anatomical/biological/mixed/conformal masks to ROIs. Set objectives: Targets use \texttt{QuadraticDose} to $d^{\text{plan}}$ (restore) or $d^{\text{adapt}}$ (adapt) with voxel weights $w_{\text{targets}}(x)$; OARs use \texttt{UpperConstraint} and/or \texttt{QuadraticOverdose} with worst-case/CVaR across $\mathcal{S}$. Robust scenarios: enable setup/range; use MC dose engine; optimize within $\leq$ 10 minutes.
+
+Figure~\ref{fig:dose_optimization} illustrates this framework.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_dose_optimization.png}
+\caption{Confidence-aware robust IMPT optimization driven by Task 2 response maps and conformal acceptance. Anatomical changes trigger restoration; biological changes trigger escalation/de-escalation with OAR chance-constraint surrogates. A scenario bank models setup/range uncertainties, and outputs include robust DVHs, gamma/WEPL checks, deliverability, and provenance.}
+\label{fig:dose_optimization}
+\end{figure}
+
+\subsubsection{Evaluation and Acceptance Criteria}
+
+\begin{table}[H]
+\centering
+\caption{Task 3 Acceptance Gates}
+\label{tab:task3_acceptance}
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Category} & \textbf{Metric} & \textbf{Target} \\
+\midrule
+Targets DVH & $|\Delta D_{95}|,|\Delta D_{98}|$ & $\leq$ 2\% Rx \\
+OAR DVH & $|\Delta D_{\text{mean}}|,|\Delta D_{\text{max}}|$ & $\leq$ 2 Gy(RBE) \\
+Gamma (MC) & $2\%/2$ mm; $1\%/1$ mm & $\Delta \gamma_{\text{pass}} \le 5$ pp \\
+Range & WEPL median; P95 & $\leq$ 1.5 mm; $\leq$ 3 mm \\
+Deliverability & Time to solution & $<$ 10 min \\
+Robustness & Artifact false adaptation & $\leq$ 5\% \\
+Provenance & Hash match & Required \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Primary (dose-centric, robust):} Robust DVH deltas: targets $|\Delta D_{95}|,|\Delta D_{98}|\le 2\%$ of prescription; OAR $|\Delta D_{\text{mean}}|,|\Delta D_{\text{max}}|\le 2$ Gy(RBE). Gamma (MC recalculation): $2\%/2$ mm and $1\%/1$ mm in high-dose voxels; $\Delta \gamma_{\text{pass}}\le 5$ pp vs baseline. Range fidelity: WEPL median $\le 1.5$ mm; P95 $\le 3$ mm.
+
+\textbf{Secondary:} EUD/TCP for targets: non-inferior; NTCP for key OARs: non-inferior or improved. Plan quality and deliverability: MU/spot limits respected; repainting applied; time-to-solution $<10$ min.
+
+\textbf{Safety and robustness:} False adaptation rate $\le 5\%$ on artifact-only cases (from Task 2). Robust scenario pass: constraints satisfied across all $s\in\mathcal{S}$.
+
+\subsubsection{Connecting Task 3 to Task 4}
+Export adapted plan with robust DVH report, gamma, WEPL stats, and provenance hashes. Provide side-by-side comparison to standard anatomical-only adaptation for retrospective evaluation.
+
+
+
+\subsection{Task 4: In-Silico Integration and Validation}
+
+\subsubsection{Objective}
+Implement and evaluate an end-to-end, confidence-aware, robust adaptive workflow within a clinical TPS that:
+\begin{itemize}
+    \item Ingests daily imaging and structures, executes Task 2 response characterization with conformal acceptance, and runs Task 3 robust IMPT optimization
+    \item Enforces physics/DIR QA, deliverability, and provenance gates
+    \item Produces auditable adapted plans with robust DVHs, gamma/WEPL checks, and time-to-solution within clinical constraints
+\end{itemize}
+
+\subsubsection{System Architecture and Orchestration}
+
+\textbf{Components:} Clinical TPS: RayStation (or equivalent) with Monte Carlo dose, robust scenario engine, and scripting API. Orchestrator: Python service coordinating DICOM I/O, Task 2 inference, ROI/mask generation, and TPS scripting. Data store: Versioned repository for images, masks, dose, and audit logs.
+
+\textbf{Operational flow (target wall-clock $\leq$ 10 minutes):}
+\begin{enumerate}
+    \item \textbf{Image import:} Load daily CBCT/in-room CT and convert to sCT via the clinical converter. Provenance: compute and store SHA-256 fingerprints of geometry and reconstruction parameters.
+    \item \textbf{Preprocessing and registration:} Rigid + DIR to planning CT; apply TG-132 QA: inverse-consistency, landmarks/contours, Jacobian histogram gates. Dose accumulation to current fraction space using the mass-/energy-conserving method from Task 2; verify energy discrepancy < 1\%.
+    \item \textbf{Response characterization (Task 2 inference):} Run the physics QA gate; generate voxel classes and calibrated probabilities $p_{\text{anat}}(x)$, $p_{\text{bio}}(x)$, $p_{\text{mixed}}(x)$. Build conformal acceptance mask $\mathcal{A}$; export confidence-scaled $w_{\text{targets}}(x)$ and $w_{\text{OAR}}(x)$.
+    \item \textbf{ROI/mask synthesis for the TPS:} Map $\{\text{anatomical}, \text{biological}, \text{mixed}\}\cap \mathcal{A}$ to \texttt{ROI}s; create adapted prescription map $d^{\text{adapt}}(x)$ where indicated.
+    \item \textbf{Robust IMPT optimization (Task 3):} Enable setup $\pm 3$ mm and range $\pm 3.5\%$ scenario bank ($|\mathcal{S}|=9$--12). Objectives: \texttt{QuadraticDose} to $d^{\text{plan}}$ (restore) or $d^{\text{adapt}}$ (adapt) with $w_{\text{targets}}(x)$; OAR \texttt{UpperConstraint}/\texttt{QuadraticOverdose} with worst-case or CVaR aggregator across $\mathcal{S}$. Deliverability rails: spot MU bounds, energy layer limits, repainting $\ge 2$.
+    \item \textbf{Automated QA and plan checks:} Robust DVH across $\mathcal{S}$, MC gamma, WEPL statistics; verify no OAR limit violation in any $s\in\mathcal{S}$. Provenance hashes for inputs, model versions, scenario bank, and dose engine.
+    \item \textbf{Visualization and clinician review:} Display voxel/region maps, conformal mask $\mathcal{A}$, and side-by-side DVH comparisons; allow approve/adapt/defer.
+\end{enumerate}
+
+\subsubsection{QA and Safety Rails}
+\begin{itemize}
+    \item \textbf{DIR QA (TG-132):} Inverse-consistency and landmark errors within site bounds; Jacobian $J$ tails bounded; negative Jacobians $\le 0.5\%$
+    \item \textbf{Dose accumulation QA:} Energy discrepancy < 1\% and $J$ histogram within acceptance
+    \item \textbf{Conformal gating:} Apply adaptation only for $x\in\mathcal{A}$ and $p_{\text{bio}}(x)\ge 0.8$; mixed $\rightarrow$ weighted blend; others $\rightarrow$ restoration/defer
+    \item \textbf{OAR robustness:} Enforce worst-case or $\text{CVaR}_\beta$ ($\beta\in[0.9,0.95]$) constraints over $\mathcal{S}$
+    \item \textbf{Deliverability:} Spot MU bounds, max energy layers per field, repainting $\ge 2$; detect distal hotspots via WEPL checks
+    \item \textbf{Fallback policy:} If any gate fails or time budget is exceeded, revert to restoration on updated anatomy or prior approved plan
+    \item \textbf{Provenance:} Hash-match required for input images, masks, scenario set, and MC configuration; log model versions and seeds
+\end{itemize}
+
+\subsubsection{Clinical Workflow and UI}
+\textbf{Overlays:} Show $\{\text{anatomical},\text{biological},\text{mixed}\}$ maps with confidence and conformal mask $\mathcal{A}$; toggle color-blind-safe colormaps. \textbf{Review gates:} Structured checklist for physics and clinical review; single-click approve/adapt/defer with audit trail. \textbf{What-if:} Allow quick switch between restoration and adaptation to compare DVHs and WEPL summaries.
+
+\subsubsection{Retrospective Evaluation Study Design}
+
+\textbf{Cohorts and arms:} Sites: head-and-neck, lung, prostate ($n \ge 30$ per site). Arms: standard anatomical-only adaptation vs. proposed confidence-aware adaptation.
+
+\textbf{Endpoints and metrics:}
+\begin{itemize}
+    \item \textbf{Primary:} Robust DVH deltas across $\mathcal{S}$: targets $|\Delta D_{95}|,|\Delta D_{98}|\le 2\%$ Rx; OAR $|\Delta D_{\text{mean}}|,|\Delta D_{\text{max}}|\le 2$ Gy(RBE)
+    \item \textbf{Secondary:} MC gamma in high-dose voxels at $2\%/2$ mm and $1\%/1$ mm; WEPL median $\le 1.5$ mm and $P95\le 3$ mm; time-to-solution $<10$ min; clinician acceptability (Likert 1--5)
+    \item \textbf{Safety:} Zero OAR limit violations across $s\in\mathcal{S}$; artifact false-adaptation rate $\le 5\%$ (from Task 2 acceptance)
+\end{itemize}
+
+4D EVALUATION (motion sites): For lung, perform 4D dose accumulation and robust QA across respiratory phases to assess motion interplay. Report phase-averaged DVH and worst-phase metrics. Deliverability KPI: Interplay mitigation via repainting $\geq 3$--4 or gating/breath-hold; 4D robust pass rate across phases.
+
+CLINICIAN ACCEPTABILITY RUBRIC: Likert scale (1--5) anchored to: (1) Target coverage, (2) OAR safety, (3) Hotspot location plausibility, (4) Adaptation rationale clarity, (5) Workflow time acceptability. Reasons for defer/restore/adapt decisions are logged for audit.
+
+\textbf{Statistics:} Paired comparisons within patient: Two One-Sided Tests (TOST) for equivalence on DVH deltas with the stated margins; Wilcoxon signed-rank for non-normal metrics. 95\% CIs via BCa bootstrap ($B=2000$). Pre-specified subgroup analyses by site and fraction index. External-center hold-out for generalization.
+
+\subsubsection{External Validation and Statistical Power}
+One center is reserved as external hold-out for generalization testing. Primary equivalence margins (targets $|\Delta D_{95}|,|\Delta D_{98}|\leq 2\%$ Rx; OAR $|\Delta D_{\text{mean}}|,|\Delta D_{\text{max}}|\leq 2$ Gy(RBE)) are clinically justified. 
+
+POWER ANALYSIS: Sample size n=30 per site calculated via TOST: $\alpha=0.05$, power=80\%, equivalence margin $\Delta\gamma\leq 5$ pp, assumed SD=8pp from pilot data, yielding minimum n=28. Target n=50 per site where feasible for site-stratified mixed-effects analysis.
+
+GENERALIZATION: External center performance must meet same acceptance criteria (F1 $\geq 0.65$, AUC-PR $\geq 0.70$, ECE $\leq 0.05$) to demonstrate robustness to site shift.
+
+\subsubsection{Acceptance Criteria}
+
+\begin{table}[H]
+\centering
+\caption{Task 4 In-Silico Integration Gates}
+\label{tab:task4_acceptance}
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Category} & \textbf{Metric} & \textbf{Target} \\
+\midrule
+Runtime & Time to solution & $<$ 10 min \\
+Targets (robust) & $|\Delta D_{95}|,|\Delta D_{98}|$ & $\leq$ 2\% Rx \\
+OARs (robust) & $|\Delta D_{\text{mean}}|,|\Delta D_{\text{max}}|$ & $\leq$ 2 Gy(RBE) \\
+Gamma (MC) & $2\%/2$ mm; $1\%/1$ mm & $\Delta \gamma_{\text{pass}} \le 5$ pp \\
+Range & WEPL median; $P95$ & $\leq$ 1.5 mm; $\leq$ 3 mm \\
+Robustness & No OAR violations over $\mathcal{S}$ & Required \\
+Uncertainty & Artifact false adaptation & $\leq$ 5\% \\
+DIR QA & TG-132 gates (incl. $J$ tails, negatives) & Within bounds \\
+Provenance & Hash match; versioned logs & Required \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Deployment, Monitoring, and Maintenance}
+\textbf{Versioning:} Semantic versions for models and scenario banks; DICOM SR for QA reports. \textbf{Monitoring:} Track calibration drift (ECE) and false-adapt rates; trigger re-calibration or model retraining when thresholds are exceeded. \textbf{Security and privacy:} Restricted access, audit trails, and encrypted storage for clinical data.
+
+
+
+% =======================
+% 4. Project Management (1 page)
+% =======================
+\section{Project Management}
+
+\subsection{Work Packages and Governance}
+
+\textbf{Work packages:}
+\begin{itemize}
+    \item \textbf{WP1:} Task 1 -- Synthetic image generation (CT/CBCT$\rightarrow$sCT), dose-centric validation
+    \item \textbf{WP2:} Task 2 -- Response characterization, uncertainty and conformal acceptance
+    \item \textbf{WP3:} Task 3 -- Confidence-aware robust IMPT optimization, deliverability rails
+    \item \textbf{WP4:} Task 4 -- Clinical integration, orchestration, automated QA and provenance
+    \item \textbf{WP5:} Dissemination and training -- Publications, tutorials, workshops, thesis
+    \item \textbf{WP6:} Data, ethics, reproducibility -- FAIR data, DMP, de-identification, licenses
+\end{itemize}
+
+\textbf{Governance and cadence:} Supervisory team: Primary supervisor + clinical physics lead + RAPTORplus mentor. Reviews: Weekly stand-ups; monthly research reviews; quarterly steering meetings. Reproducibility: Git-based repos with CI/CD, semantic versioning, \texttt{DICOM SR} QA exports, model cards and seeds logged.
+
+\subsection{Timeline and Milestones}
+
+\begin{table}[H]
+\centering
+\caption{Updated 3-year timeline with acceptance gates}
+\label{tab:timeline}
+\small
+\begin{tabular}{p{2cm}p{4.5cm}p{2.3cm}p{4cm}}
+\toprule
+\textbf{Period} & \textbf{Activities} & \textbf{Deliverable} & \textbf{Acceptance gates} \\
+\midrule
+Year 1, Q1--Q2 & Ethics, DMP, data access; CBCT digital twin & Data/DMP ready & Provenance hash; geometry guard; FAIR checklist \\
+\midrule
+Year 1, Q2 & Task 1 v0.9 (anatomy+biology synthesis) & Synthetic cohort v0.9 & WEPL median $\le 1.5$ mm; $P95\le 3$ mm; $\Delta\gamma_{\text{pass}}\le 5$ pp \\
+\midrule
+Year 1, Q3--Q4 & Task 2 v1.0 (multimodal model, calibration) & Model v1.0 & Biology F1 $\ge 0.65$; AUC-PR $\ge 0.70$ (external); ECE $\le 0.05$ \\
+\midrule
+Year 1, Q4 & Secondment: NTNU (3 months) & Training & Site transfer learning plan; external hold-out setup \\
+\midrule
+Year 2, Q1--Q2 & Task 2 validation; Task 3 prototype & Algorithm v0.9 & Robust DVH targets $|\Delta D_{95}|,|\Delta D_{98}|\le 2\%$ Rx; OAR $\le 2$ Gy(RBE) \\
+\midrule
+Year 2, Q2--Q3 & Task 3 hardening; MC dose + robust scenarios & Algorithm v1.0 & Runtime $<10$ min; repainting $\ge 2$; no OAR violations across $\mathcal{S}$ \\
+\midrule
+Year 2, Q3--Q4 & Secondment: Politecnico Milano (3 months) & Training & Robust optimization benchmarking; CVaR $\beta\in[0.9,0.95]$ \\
+\midrule
+Year 2, Q4 & Industrial partner (2 months) & Integration & TPS scripting template; CI/CD pipeline \\
+\midrule
+Year 3, Q1--Q2 & Task 4 integration; retrospective study & Pipeline v1.0 & Full QA suite (DVH/gamma/WEPL/provenance); clinician acceptability \\
+\midrule
+Year 3, Q3--Q4 & Thesis writing; defense & PhD Thesis & All gates met; repositories archived with DOIs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Resources and Secondments}
+
+\textbf{Clinical systems:} RayStation (MC dose, robust scenarios), CBCT$\rightarrow$sCT converter, DICOM. \textbf{Compute:} GPUs for DL/MC, secure storage with audit logging. \textbf{Data:} Multi-site cohorts via RAPTORplus; de-identified per DMP. \textbf{Secondments:} (1) NTNU: multimodal image analysis and delta-radiomics harmonization; (2) Politecnico Milano: robust optimization, CVaR/worst-case methods; (3) Industrial partner: TPS integration, clinical workflow engineering.
+
+\subsection{Risk Management}
+
+\begin{table}[H]
+\centering
+\caption{Risk register and mitigations}
+\label{tab:risks}
+\small
+\begin{tabular}{p{2.5cm}p{2cm}p{2cm}p{5cm}}
+\toprule
+\textbf{Risk} & \textbf{Likelihood/ Impact} & \textbf{Trigger} & \textbf{Mitigation} \\
+\midrule
+Limited data & Medium/High & Slow accrual & Synthetic cohorts; multi-center RAPTORplus; DP if sharing \\
+\midrule
+Generalization gap & Medium/Medium & Drop in external AUC-PR & ComBat harmonization; domain adaptation; external hold-out \\
+\midrule
+DIR quality & Medium/High & $J$ tail violations & TG-132 gates; inverse-consistency audits; fallback to restoration \\
+\midrule
+Runtime overruns & Medium/Medium & $>10$ min & Pre-compute scenario banks; model compression; GPU scheduling \\
+\midrule
+Regulatory/ethics & Low/High & Consent/data transfer delays & Early approvals; DMP; de-identification; data use agreements \\
+\midrule
+Clinical integration & Medium/Medium & TPS scripting limits & Modular orchestration; vendor liaison; minimal-viable UI \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Data Management and Reproducibility}
+
+\textbf{FAIR:} Metadata, DOIs for releases, clear licenses (code: Apache-2.0; data: CC-BY-NC 4.0 where permitted). \textbf{Privacy:} De-identification; access controls; encrypted storage; audit trails. \textbf{Provenance:} SHA-256 hashes for inputs/config; \texttt{DICOM SR} QA exports; model cards (version, site, seeds). \textbf{Differential privacy (if external release):} DP-SGD with reported $(\epsilon,\delta)$.
+
+\subsection{Monitoring and KPIs}
+
+\begin{table}[H]
+\centering
+\caption{Operational KPIs}
+\label{tab:kpis}
+\small
+\begin{tabular}{lc}
+\toprule
+\textbf{KPI} & \textbf{Target} \\
+\midrule
+Time-to-solution & $<10$ min per fraction \\
+Artifact false-adapt rate & $\le 5\%$ \\
+Calibration drift (ECE) & $\le 0.05$ (re-calibrate if exceeded) \\
+Robust DVH targets & $|\Delta D_{95}|,|\Delta D_{98}|\le 2\%$ Rx \\
+OAR limits & Zero violations over $\mathcal{S}$ \\
+Gamma pass & $\Delta\gamma_{\text{pass}}\le 5$ pp (MC, $2\%/2$ mm) \\
+WEPL & Median $\le 1.5$ mm; $P95\le 3$ mm \\
+Publications & $\ge 3$ peer-reviewed papers \\
+Software releases & $\ge 2$ tagged versions with DOIs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =======================
+% 5. Expected Outcomes (0.5 page)
+% =======================
+\section{Expected Outcomes and Impact}
+
+\subsection{Scientific Contributions}
+\begin{itemize}
+    \item First confidence-aware framework to distinguish anatomical vs. biological drivers of daily image changes and act on them in robust IMPT
+    \item Dose-centric synthetic generation pipeline for CT/CBCT$\rightarrow$sCT with validated WEPL/dose fidelity
+    \item Conformal acceptance-gated adaptation that reduces unsafe changes from artifacts/uncertainty
+    \item Robust optimization with OAR chance-constraint surrogates ($\text{CVaR}_\beta$; worst-case), reported in Gy(RBE) with clinical $RBE=1.1$
+\end{itemize}
+
+\subsection{Software, Data, and Assets}
+\textbf{Orchestrator and TPS scripts:} Python + RayStation API templates; versioned scenario banks; automated QA (\texttt{DICOM SR}). \textbf{Synthetic cohorts (where permitted):} De-identified samples with model cards and seeds; dose-centric validation reports. \textbf{Documentation:} User guides, reproducibility checklists, and tutorial notebooks.
+
+\subsection{Publications and Dissemination}
+\textbf{Target journals:} \textit{Medical Physics}, \textit{Physics in Medicine \& Biology}, \textit{Radiotherapy \& Oncology}. \textbf{Conferences:} ASTRO, ESTRO, AAPM (talks, posters, tutorials). \textbf{Timeline:} $\ge 1$ paper Year 1 (Task 1), $\ge 1$ paper Year 2 (Task 2/3), $\ge 1$ paper Year 3 (Task 4 retrospective study). \textbf{Open research:} Preprints, code/data (where allowed), registered protocols for equivalence testing and QA.
+
+\subsection{Clinical Impact}
+Personalized adaptation that can escalate/de-escalate based on biological response while maintaining robust target coverage and OAR safety. Efficient daily workflows (runtime $<10$ min) compatible with clinical slots. Potential for reduced toxicity via selective de-escalation and redistribution; safeguards via conformal gating and robust constraints.
+
+\subsection{Training and Career Development}
+Cross-disciplinary training in DL, medical physics, robust optimization, and clinical translation. Secondments provide applied expertise and a strong international network. Career readiness for academic or industrial research roles in precision oncology.
+
+\subsection{Exploitation and Sustainability}
+\textbf{RAPTORplus integration:} Share methods, scenario banks, and QA templates across sites. \textbf{Adoption roadmap:} Pilot in retrospective, then observational clinical studies with IRB oversight. \textbf{Sustainability:} Modular codebase, CI/CD, versioned assets; plan for maintenance via consortium and partner support.
+
+
+
+% =======================
+% References (1 page)
+% =======================
+\newpage
+\bibliographystyle{plain}
+\begin{thebibliography}{99}
+
+\bibitem{paganetti2012}
+Paganetti H. Range uncertainties in proton therapy and the role of Monte Carlo simulations. \textit{Physics in Medicine \& Biology}, 2012; 57(11):R99.
+
+\bibitem{paganetti2020}
+Paganetti H, et al. Roadmap: proton therapy physics and biology. \textit{Physics in Medicine \& Biology}, 2021; 66(5):05RM01.
+
+\bibitem{borderías2020}
+Borderías-Villarroel E, Geets X, Sterpin E. Online adaptive dose restoration in intensity modulated proton therapy of lung cancer to account for inter-fractional density changes. \textit{Physics and Imaging in Radiation Oncology}, 2020; 14:8-12. https://doi.org/10.1016/j.phro.2020.06.004.
+
+\bibitem{albertini2024}
+Albertini F, et al. First clinical implementation of a highly efficient daily online adapted proton therapy (DAPT) workflow. \textit{Physics in Medicine \& Biology}, 2024; 69:215030. https://doi.org/10.1088/1361-6560/ad7cbd.
+
+\bibitem{trada2023}
+Trada Y, Keall P, Jameson M, et al. Changes in serial multiparametric MRI and FDG-PET/CT functional imaging during radiation therapy can predict treatment response in patients with head and neck cancer. \textit{European Radiology}, 2023. https://doi.org/10.1007/s00330-023-09843-2.
+
+\bibitem{gregg2025}
+Gregg KW, Arsenault T, Rezaei A, Kashani R, Henke L, Price AT. Hounsfield Unit characterization and dose calculation on a C-arm linac with novel on-board cone-beam computed tomography feature and advanced reconstruction algorithms. \textit{Journal of Applied Clinical Medical Physics}, 2025. https://doi.org/10.1002/acm2.70145.
+
+\bibitem{zwanenburg2020ibsi}
+Zwanenburg A, Vallières M, Abdalah MA, Aerts HJWL, Andrearczyk V, Apte A, Ashrafinia S, Bakas S, et al. The Image Biomarker Standardization Initiative: Standardized Quantitative Radiomics for High-Throughput Image-based Phenotyping. \textit{Radiology}, 2020; 295(2):328-338. https://doi.org/10.1148/radiol.2020191145.
+
+\bibitem{zhong2024}
+Zhong H. An energy-conserving dose summation method for dose accumulation in radiotherapy. \textit{Medical Physics}, 2024. https://doi.org/10.1002/mp.17514.
+
+\bibitem{vestergaard2024}
+Vestergaard CD, Elstrøm UV, Muren LP, Ren J, Nørrevang O, Jensen K, Taasti VT. Proton dose calculation on cone-beam computed tomography using unsupervised 3D deep learning networks. \textit{Physics and Imaging in Radiation Oncology}, 2024; 32:100658. https://doi.org/10.1016/j.phro.2024.100658.
+
+\bibitem{gambetta2025}
+Gambetta V, Stützer K, Richter C. Current status and upcoming developments for online adaptive proton therapy enabling a closed feedback loop for near real-time adaptation. \textit{Frontiers in Oncology}, 2025; 15:1660605. https://doi.org/10.3389/fonc.2025.1660605.
+
+\bibitem{kurz2021}
+Kurz C, et al. Medical physics challenges in clinical MR-guided radiotherapy. \textit{Radiation Oncology}, 2021; 16:1-16.
+
+\bibitem{parodi2015}
+Parodi K. Vision 20/20: Positron emission tomography in radiation therapy planning, delivery, and monitoring. \textit{Medical Physics}, 2015; 42(12):7153-7168.
+
+\bibitem{thompson2018}
+Thompson RF, Valdes G, Fuller CD, et al. Artificial intelligence in radiation oncology: A specialty-wide disruptive transformation? \textit{Radiotherapy and Oncology}, 2018; 129(3):421-426.
+
+\bibitem{cardenas2019}
+Cardenas CE, et al. Deep learning algorithm for auto-delineation of high-risk oropharyngeal clinical target volumes with built-in dice similarity coefficient parameter optimization function. \textit{International Journal of Radiation Oncology}, 2019; 101(2):468-478.
+
+\bibitem{nguyen2019}
+Nguyen D, et al. A feasibility study for predicting optimal radiation therapy dose distributions of prostate cancer patients from patient anatomy using deep learning. \textit{Scientific Reports}, 2019; 9(1):1076.
+
+\bibitem{kearney2020}
+Liang X, et al. Generating synthesized computed tomography (CT) from cone-beam computed tomography (CBCT) using CycleGAN for adaptive radiation therapy. \textit{Physics in Medicine \& Biology}, 2019; 64(12):125002.
+
+\bibitem{lambin2017}
+Lambin P, et al. Radiomics: the bridge between medical imaging and personalized medicine. \textit{Nature Reviews Clinical Oncology}, 2017; 14(12):749-762.
+
+\bibitem{niemierko1999}
+Niemierko A. A generalized concept of equivalent uniform dose (EUD). \textit{Medical Physics}, 1999; 26(6):1100.
+
+\bibitem{zhou2018}
+Zhou M, Scott J, Chaudhury B, et al. Radiomics in brain tumor: image assessment, quantitative feature descriptors, and machine-learning approaches. \textit{American Journal of Neuroradiology}, 2018; 39(2):208-216.
+
+\bibitem{yi2019}
+Yi X, et al. Generative adversarial network in medical imaging: A review. \textit{Medical Image Analysis}, 2019; 58:101552.
+
+\bibitem{kazerouni2023}
+Kazerouni A, et al. Diffusion models in medical imaging: A comprehensive survey. \textit{Medical Image Analysis}, 2023; 88:102846.
+
+\bibitem{ho2020}
+Ho J, Jain A, Abbeel P. Denoising diffusion probabilistic models. \textit{Advances in Neural Information Processing Systems}, 2020; 33:6840-6851.
+
+\bibitem{brock2017}
+Brock KK, Mutic S, McNutt TR, Li H, Kessler ML. Use of image registration and fusion algorithms and techniques in radiotherapy: Report of the AAPM Radiation Therapy Committee Task Group No. 132. \textit{Medical Physics}, 2017; 44(7):e43-e76.
+
+\bibitem{gillies2016}
+Gillies RJ, et al. Radiomics: images are more than pictures, they are data. \textit{Radiology}, 2016; 278(2):563-577.
+
+\bibitem{fave2017}
+Fave X, et al. Delta-radiomics features for the prediction of patient outcomes in non–small cell lung cancer. \textit{Scientific Reports}, 2017; 7(1):588.
+
+\bibitem{unkelbach2018}
+Unkelbach J, Bortfeld T, et al. Robust planning and delivery of intensity modulated proton therapy. \textit{Physics in Medicine \& Biology}, 2018; 63(22):22TR02.
+
+\bibitem{mcnamara2015}
+McNamara AL, Schuemann J, Paganetti H. A phenomenological relative biological effectiveness (RBE) model for proton therapy. \textit{Physics in Medicine \& Biology}, 2015; 60(21):8399.
+
+\bibitem{vovk2005}
+Vovk V, Gammerman A, Shafer G. Algorithmic Learning in a Random World. Springer, 2005.
+
+\bibitem{grassberger2013}
+Grassberger C, Dowdell S, Lomax A, et al. Motion interplay as a function of patient parameters and spot size in spot scanning proton therapy for lung cancer. \textit{International Journal of Radiation Oncology Biology Physics}, 2013; 86(2):380-386.
+
+
+\end{thebibliography}
+
+\end{document}
