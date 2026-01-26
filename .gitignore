@@ -107,3 +107,5 @@ test_output/
 !validation/.gitkeep
 !methodology/.gitkeep
 !references/.gitkeep
+
+raptor-synthetic-imaging/
